@@ -400,14 +400,41 @@ select {
   right: 14px;
   top: 64px;
   z-index: 510;
-  min-height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 8px;
-  padding: 0 14px;
+  padding: 0;
   background: var(--blue);
   color: #fff;
-  font-size: 13px;
-  font-weight: 800;
   box-shadow: 0 10px 25px rgba(8, 28, 22, 0.18);
+}
+
+.map-locate-button::before,
+.map-locate-button::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.map-locate-button::before {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+}
+
+.map-locate-button::after {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 -15px 0 -1px #fff,
+    0 15px 0 -1px #fff,
+    -15px 0 0 -1px #fff,
+    15px 0 0 -1px #fff;
 }
 
 .location-card {
