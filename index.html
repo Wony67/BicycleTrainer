@@ -6,6 +6,12 @@
     <meta name="theme-color" content="#0e7c66" />
     <title>Bicycle Trainer</title>
     <link rel="manifest" href="manifest.json" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQWQsQOm9o6k3dxRrv2l/t3z2d8nBNf="
+      crossorigin=""
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -86,10 +92,7 @@
           </div>
 
           <div class="map-panel">
-            <div class="route-line"></div>
-            <div class="route-dot start"></div>
-            <div class="route-dot mid"></div>
-            <div class="route-dot finish"></div>
+            <div id="routeMap" class="route-map" aria-label="현재 위치 지도"></div>
             <div class="location-card">
               <span>현재 좌표</span>
               <strong id="coords">위치 권한 필요</strong>
@@ -185,6 +188,11 @@
       </nav>
     </div>
 
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
     <script src="app.js"></script>
   </body>
 </html>

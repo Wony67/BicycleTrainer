@@ -282,51 +282,14 @@ select {
   min-height: 330px;
   overflow: hidden;
   border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.7) 1px, transparent 1px),
-    linear-gradient(rgba(255, 255, 255, 0.7) 1px, transparent 1px),
-    linear-gradient(135deg, #b8d9d0, #e7efe4 55%, #f4d9a6);
-  background-size: 34px 34px, 34px 34px, auto;
+  background: #dce7e1;
   box-shadow: var(--shadow);
 }
 
-.route-line {
+.route-map {
   position: absolute;
-  left: 18%;
-  top: 68%;
-  width: 68%;
-  height: 9px;
-  border-radius: 999px;
-  background: var(--blue);
-  transform: rotate(-32deg);
-  transform-origin: left center;
-}
-
-.route-dot {
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  border: 4px solid #fff;
-  border-radius: 50%;
-  background: var(--blue);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
-}
-
-.route-dot.start {
-  left: 17%;
-  top: 64%;
-  background: var(--green);
-}
-
-.route-dot.mid {
-  left: 49%;
-  top: 43%;
-  background: var(--amber);
-}
-
-.route-dot.finish {
-  right: 14%;
-  top: 25%;
+  inset: 0;
+  z-index: 1;
 }
 
 .location-card {
@@ -334,9 +297,11 @@ select {
   left: 14px;
   right: 14px;
   bottom: 14px;
+  z-index: 500;
   padding: 14px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 25px rgba(8, 28, 22, 0.14);
 }
 
 .location-card span {

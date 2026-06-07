@@ -10,6 +10,11 @@ const state = {
   distanceKm: 0,
   currentSpeed: 0,
   installPrompt: null,
+  routePoints: [],
+  map: null,
+  mapMarker: null,
+  mapAccuracy: null,
+  mapRoute: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -28,6 +33,7 @@ const elements = {
   manualRideForm: $("#manualRideForm"),
   clearRecords: $("#clearRecords"),
   locateMe: $("#locateMe"),
+  routeMap: $("#routeMap"),
   coords: $("#coords"),
   routeForm: $("#routeForm"),
   routeAdvice: $("#routeAdvice"),
@@ -104,19 +110,81 @@ function updatePosition(position) {
     latitude: position.coords.latitude,
     longitude: position.coords.longitude,
   };
+  const latLng = [current.latitude, current.longitude];
 
   if (state.riding && state.lastPosition) {
     const nextDistance = haversineKm(state.lastPosition, current);
     if (nextDistance < 0.2) {
       state.distanceKm += nextDistance;
+      state.routePoints.push(latLng);
     }
+  } else if (state.riding && !state.routePoints.length) {
+    state.routePoints.push(latLng);
   }
 
   state.currentSpeed = Math.max(0, (position.coords.speed || 0) * 3.6);
   state.lastPosition = current;
   elements.coords.textContent = `${current.latitude.toFixed(5)}, ${current.longitude.toFixed(5)}`;
   setGpsStatus("GPS 수신");
+  syncMapPosition(latLng, position.coords.accuracy);
   updateRideMetrics();
+}
+
+function initRouteMap() {
+  if (state.map || !elements.routeMap || !window.L) return;
+
+  const defaultCenter = [37.5665, 126.978];
+  state.map = L.map(elements.routeMap, {
+    zoomControl: true,
+    attributionControl: true,
+  }).setView(defaultCenter, 12);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(state.map);
+
+  state.mapRoute = L.polyline([], {
+    color: "#0e7c66",
+    weight: 5,
+    opacity: 0.9,
+  }).addTo(state.map);
+}
+
+function syncMapPosition(latLng, accuracy) {
+  initRouteMap();
+  if (!state.map) return;
+
+  if (!state.mapMarker) {
+    state.mapMarker = L.marker(latLng).addTo(state.map).bindPopup("현재 위치");
+  } else {
+    state.mapMarker.setLatLng(latLng);
+  }
+
+  if (!state.mapAccuracy) {
+    state.mapAccuracy = L.circle(latLng, {
+      radius: accuracy || 30,
+      color: "#2563eb",
+      fillColor: "#2563eb",
+      fillOpacity: 0.12,
+      weight: 1,
+    }).addTo(state.map);
+  } else {
+    state.mapAccuracy.setLatLng(latLng);
+    state.mapAccuracy.setRadius(accuracy || 30);
+  }
+
+  if (state.mapRoute) {
+    state.mapRoute.setLatLngs(state.routePoints);
+  }
+
+  state.map.setView(latLng, Math.max(state.map.getZoom(), 16));
+}
+
+function refreshRouteMap() {
+  initRouteMap();
+  if (!state.map) return;
+  setTimeout(() => state.map.invalidateSize(), 80);
 }
 
 function checkGpsOnce() {
@@ -204,6 +272,8 @@ function startRide() {
   state.distanceKm = 0;
   state.currentSpeed = 0;
   state.lastPosition = null;
+  state.routePoints = [];
+  if (state.mapRoute) state.mapRoute.setLatLngs([]);
   elements.rideToggle.textContent = "종료";
   setGpsStatus("GPS 연결 중");
   state.elapsedTimer = setInterval(updateRideMetrics, 1000);
@@ -323,6 +393,7 @@ function renderAll() {
 function switchView(viewName) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${viewName}`));
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === viewName));
+  if (viewName === "route") refreshRouteMap();
 }
 
 function isStandaloneApp() {
@@ -402,21 +473,7 @@ elements.clearRecords.addEventListener("click", () => {
 });
 
 elements.locateMe.addEventListener("click", () => {
-  if (!navigator.geolocation) {
-    elements.coords.textContent = "이 브라우저는 위치 기능을 지원하지 않습니다.";
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      elements.coords.textContent = `${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`;
-      setGpsStatus("위치 확인");
-    },
-    () => {
-      elements.coords.textContent = "위치 권한을 허용해야 합니다.";
-      setGpsStatus("GPS 권한 필요");
-    },
-    { enableHighAccuracy: true, timeout: 10000 },
-  );
+  checkGpsOnce();
 });
 
 elements.routeForm.addEventListener("submit", (event) => {
@@ -454,3 +511,4 @@ renderAll();
 updateRideMetrics();
 updateInstallButton();
 initializeGpsStatus();
+initRouteMap();
