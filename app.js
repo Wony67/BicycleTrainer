@@ -1,4 +1,5 @@
 const STORAGE_KEY = "bicycle-trainer-records";
+const NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 
 const state = {
   records: loadRecords(),
@@ -16,6 +17,8 @@ const state = {
   mapAccuracy: null,
   mapRoute: null,
   mapResizeObserver: null,
+  mapProvider: null,
+  naverMapLoading: false,
   updateRegistration: null,
   waitingWorker: null,
   reloadingForUpdate: false,
@@ -53,6 +56,10 @@ const elements = {
   bestDistance: $("#bestDistance"),
   weeklyCount: $("#weeklyCount"),
   distanceChart: $("#distanceChart"),
+  settingsForm: $("#settingsForm"),
+  naverMapKey: $("#naverMapKey"),
+  settingsStatus: $("#settingsStatus"),
+  clearNaverKey: $("#clearNaverKey"),
 };
 
 function loadRecords() {
@@ -65,6 +72,24 @@ function loadRecords() {
 
 function saveRecords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records));
+}
+
+function getNaverMapKey() {
+  return localStorage.getItem(NAVER_MAP_KEY) || "";
+}
+
+function setSettingsStatus(message) {
+  if (elements.settingsStatus) elements.settingsStatus.textContent = message;
+}
+
+function renderSettings() {
+  const key = getNaverMapKey();
+  if (elements.naverMapKey) elements.naverMapKey.value = key;
+  setSettingsStatus(
+    key
+      ? "네이버 지도 키가 이 기기에 저장되어 있습니다. 경로 탭에서 네이버 지도를 우선 사용합니다."
+      : "API 키는 이 기기의 브라우저에만 저장됩니다. 비워두면 OpenStreetMap을 사용합니다.",
+  );
 }
 
 function formatElapsed(ms) {
@@ -207,12 +232,19 @@ function updatePosition(position) {
 
 function initRouteMap() {
   if (state.map || !elements.routeMap) return Boolean(state.map);
+  const naverKey = getNaverMapKey();
+  if (naverKey) return initNaverRouteMap(naverKey);
+  return initLeafletRouteMap();
+}
+
+function initLeafletRouteMap() {
   if (!window.L) {
     setMapStatus("지도 라이브러리를 불러오지 못했습니다. 네트워크 연결 후 새로고침하세요.", "error");
     return false;
   }
 
   const defaultCenter = [37.5665, 126.978];
+  state.mapProvider = "leaflet";
   state.map = L.map(elements.routeMap, {
     zoomControl: true,
     attributionControl: true,
@@ -239,6 +271,61 @@ function initRouteMap() {
   return true;
 }
 
+function initNaverRouteMap(naverKey) {
+  if (!window.naver?.maps) {
+    loadNaverMapScript(naverKey);
+    return false;
+  }
+
+  const defaultCenter = new naver.maps.LatLng(37.5665, 126.978);
+  state.mapProvider = "naver";
+  state.map = new naver.maps.Map(elements.routeMap, {
+    center: defaultCenter,
+    zoom: 12,
+    zoomControl: true,
+    zoomControlOptions: {
+      position: naver.maps.Position.TOP_LEFT,
+    },
+  });
+
+  state.mapRoute = new naver.maps.Polyline({
+    map: state.map,
+    path: [],
+    strokeColor: "#0e7c66",
+    strokeOpacity: 0.9,
+    strokeWeight: 5,
+  });
+
+  if ("ResizeObserver" in window) {
+    state.mapResizeObserver = new ResizeObserver(() => invalidateMapSize());
+    state.mapResizeObserver.observe(elements.routeMap);
+  }
+
+  setMapStatus("네이버 지도가 준비되었습니다. 현재 위치를 누르면 내 위치로 이동합니다.", "ready");
+  invalidateMapSize();
+  return true;
+}
+
+function loadNaverMapScript(naverKey) {
+  if (state.naverMapLoading) return;
+  state.naverMapLoading = true;
+  setMapStatus("네이버 지도를 불러오는 중입니다.", "ready");
+
+  const script = document.createElement("script");
+  script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverKey)}`;
+  script.async = true;
+  script.onload = () => {
+    state.naverMapLoading = false;
+    initRouteMap();
+    refreshRouteMap();
+  };
+  script.onerror = () => {
+    state.naverMapLoading = false;
+    setMapStatus("네이버 지도를 불러오지 못했습니다. API 키와 허용 도메인을 확인하세요.", "error");
+  };
+  document.head.appendChild(script);
+}
+
 function createLocationIcon() {
   return L.divIcon({
     className: "",
@@ -248,8 +335,20 @@ function createLocationIcon() {
   });
 }
 
+function toProviderLatLng(latLng) {
+  if (state.mapProvider === "naver") return new naver.maps.LatLng(latLng[0], latLng[1]);
+  return latLng;
+}
+
 function invalidateMapSize() {
   if (!state.map) return;
+  if (state.mapProvider === "naver") {
+    [0, 80, 250, 700, 1400].forEach((delay) => {
+      setTimeout(() => naver.maps.Event.trigger(state.map, "resize"), delay);
+    });
+    return;
+  }
+
   requestAnimationFrame(() => {
     requestAnimationFrame(() => state.map.invalidateSize({ pan: false }));
   });
@@ -261,37 +360,79 @@ function invalidateMapSize() {
 function syncMapPosition(latLng, accuracy) {
   if (!initRouteMap()) return;
   if (!state.map) return;
+  const providerLatLng = toProviderLatLng(latLng);
 
   if (!state.mapMarker) {
-    state.mapMarker = L.marker(latLng, {
-      icon: createLocationIcon(),
-      keyboard: false,
-      title: "내 위치",
-      zIndexOffset: 1000,
-    }).addTo(state.map).bindPopup("내 위치");
+    if (state.mapProvider === "naver") {
+      state.mapMarker = new naver.maps.Marker({
+        position: providerLatLng,
+        map: state.map,
+        title: "내 위치",
+        icon: {
+          content: '<div class="my-location-marker" aria-hidden="true"></div>',
+          size: new naver.maps.Size(22, 22),
+          anchor: new naver.maps.Point(11, 11),
+        },
+      });
+    } else {
+      state.mapMarker = L.marker(latLng, {
+        icon: createLocationIcon(),
+        keyboard: false,
+        title: "내 위치",
+        zIndexOffset: 1000,
+      }).addTo(state.map).bindPopup("내 위치");
+    }
   } else {
-    state.mapMarker.setLatLng(latLng);
+    if (state.mapProvider === "naver") state.mapMarker.setPosition(providerLatLng);
+    else state.mapMarker.setLatLng(latLng);
   }
 
   if (!state.mapAccuracy) {
-    state.mapAccuracy = L.circle(latLng, {
-      radius: accuracy || 30,
-      color: "#2563eb",
-      fillColor: "#2563eb",
-      fillOpacity: 0.12,
-      weight: 1,
-    }).addTo(state.map);
+    if (state.mapProvider === "naver") {
+      state.mapAccuracy = new naver.maps.Circle({
+        map: state.map,
+        center: providerLatLng,
+        radius: accuracy || 30,
+        strokeColor: "#2563eb",
+        strokeOpacity: 0.9,
+        strokeWeight: 1,
+        fillColor: "#2563eb",
+        fillOpacity: 0.12,
+      });
+    } else {
+      state.mapAccuracy = L.circle(latLng, {
+        radius: accuracy || 30,
+        color: "#2563eb",
+        fillColor: "#2563eb",
+        fillOpacity: 0.12,
+        weight: 1,
+      }).addTo(state.map);
+    }
   } else {
-    state.mapAccuracy.setLatLng(latLng);
-    state.mapAccuracy.setRadius(accuracy || 30);
+    if (state.mapProvider === "naver") {
+      state.mapAccuracy.setCenter(providerLatLng);
+      state.mapAccuracy.setRadius(accuracy || 30);
+    } else {
+      state.mapAccuracy.setLatLng(latLng);
+      state.mapAccuracy.setRadius(accuracy || 30);
+    }
   }
 
   if (state.mapRoute) {
-    state.mapRoute.setLatLngs(state.routePoints);
+    if (state.mapProvider === "naver") {
+      state.mapRoute.setPath(state.routePoints.map(toProviderLatLng));
+    } else {
+      state.mapRoute.setLatLngs(state.routePoints);
+    }
   }
 
   invalidateMapSize();
-  state.map.setView(latLng, Math.max(state.map.getZoom(), 16), { animate: true });
+  if (state.mapProvider === "naver") {
+    state.map.setCenter(providerLatLng);
+    state.map.setZoom(Math.max(state.map.getZoom(), 16));
+  } else {
+    state.map.setView(latLng, Math.max(state.map.getZoom(), 16), { animate: true });
+  }
   setMapStatus("현재 위치가 지도에 표시되었습니다.", "ready");
 }
 
@@ -311,6 +452,28 @@ function refreshRouteMap() {
   if (!initRouteMap()) return;
   if (!state.map) return;
   invalidateMapSize();
+}
+
+function resetRouteMap() {
+  if (state.mapResizeObserver) {
+    state.mapResizeObserver.disconnect();
+    state.mapResizeObserver = null;
+  }
+
+  if (state.mapProvider === "leaflet" && state.map?.remove) {
+    state.map.remove();
+  }
+
+  if (state.mapProvider === "naver") {
+    [state.mapMarker, state.mapAccuracy, state.mapRoute].forEach((item) => item?.setMap?.(null));
+  }
+
+  state.map = null;
+  state.mapMarker = null;
+  state.mapAccuracy = null;
+  state.mapRoute = null;
+  state.mapProvider = null;
+  if (elements.routeMap) elements.routeMap.innerHTML = "";
 }
 
 function checkGpsOnce() {
@@ -399,7 +562,10 @@ function startRide() {
   state.currentSpeed = 0;
   state.lastPosition = null;
   state.routePoints = [];
-  if (state.mapRoute) state.mapRoute.setLatLngs([]);
+  if (state.mapRoute) {
+    if (state.mapProvider === "naver") state.mapRoute.setPath([]);
+    else state.mapRoute.setLatLngs([]);
+  }
   elements.rideToggle.textContent = "종료";
   setGpsStatus("GPS 연결 중");
   state.elapsedTimer = setInterval(updateRideMetrics, 1000);
@@ -610,6 +776,28 @@ elements.locateMe.addEventListener("click", () => {
 
 elements.mapLocateMe?.addEventListener("click", centerMapOnCurrentLocation);
 
+elements.settingsForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const key = elements.naverMapKey.value.trim();
+  if (key) {
+    localStorage.setItem(NAVER_MAP_KEY, key);
+    resetRouteMap();
+    setSettingsStatus("네이버 지도 키를 저장했습니다. 경로 탭에서 네이버 지도를 불러옵니다.");
+  } else {
+    localStorage.removeItem(NAVER_MAP_KEY);
+    resetRouteMap();
+    setSettingsStatus("네이버 지도 키를 비웠습니다. OpenStreetMap을 사용합니다.");
+  }
+  renderSettings();
+});
+
+elements.clearNaverKey?.addEventListener("click", () => {
+  localStorage.removeItem(NAVER_MAP_KEY);
+  resetRouteMap();
+  renderSettings();
+  setSettingsStatus("네이버 지도 키를 삭제했습니다. OpenStreetMap을 사용합니다.");
+});
+
 elements.routeForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const destination = $("#destination").value.trim() || "목적지";
@@ -645,6 +833,7 @@ window.addEventListener("resize", refreshRouteMap);
 window.addEventListener("orientationchange", refreshRouteMap);
 
 renderAll();
+renderSettings();
 updateRideMetrics();
 updateInstallButton();
 initializeGpsStatus();

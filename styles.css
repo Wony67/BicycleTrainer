@@ -440,6 +440,27 @@ select {
   line-height: 1.55;
 }
 
+.settings-note {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.danger-action {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 14px;
+  border-radius: 8px;
+  background: #f1e5e0;
+  color: #9f3a21;
+  font-weight: 800;
+}
+
 .analysis-grid {
   margin-top: 8px;
 }
@@ -472,8 +493,8 @@ select {
   z-index: 10;
   display: grid;
   width: min(100%, 560px);
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.94);
@@ -486,6 +507,7 @@ select {
   border-radius: 8px;
   background: transparent;
   color: var(--muted);
+  font-size: 13px;
   font-weight: 800;
 }
 

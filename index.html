@@ -188,6 +188,29 @@
             <div class="bar-chart" id="distanceChart"></div>
           </div>
         </section>
+
+        <section class="view" id="view-settings" aria-labelledby="settings-title">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">App Settings</p>
+              <h2 id="settings-title">설정</h2>
+            </div>
+          </div>
+
+          <form class="ride-form" id="settingsForm">
+            <label>
+              <span>네이버 지도 ncpKeyId</span>
+              <input id="naverMapKey" autocomplete="off" type="password" placeholder="NAVER Cloud Platform 키 입력" />
+            </label>
+            <button type="submit">저장</button>
+          </form>
+
+          <div class="settings-note" id="settingsStatus">
+            API 키는 이 기기의 브라우저에만 저장됩니다.
+          </div>
+
+          <button class="danger-action" id="clearNaverKey" type="button">네이버 지도 키 삭제</button>
+        </section>
       </main>
 
       <nav class="tabbar" aria-label="앱 메뉴">
@@ -195,6 +218,7 @@
         <button class="tab" data-view="route" type="button">경로</button>
         <button class="tab" data-view="coach" type="button">코치</button>
         <button class="tab" data-view="analysis" type="button">분석</button>
+        <button class="tab" data-view="settings" type="button">설정</button>
       </nav>
     </div>
 
