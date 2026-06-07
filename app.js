@@ -1,8 +1,12 @@
 const STORAGE_KEY = "bicycle-trainer-records";
 const NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
+const PROFILE_KEY = "bicycle-trainer-profile";
+const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
 
 const state = {
   records: loadRecords(),
+  profile: loadProfile(),
+  weightHistory: loadWeightHistory(),
   riding: false,
   startedAt: 0,
   elapsedTimer: null,
@@ -56,6 +60,12 @@ const elements = {
   weeklyCount: $("#weeklyCount"),
   distanceChart: $("#distanceChart"),
   settingsForm: $("#settingsForm"),
+  profileForm: $("#profileForm"),
+  profileName: $("#profileName"),
+  profileHeight: $("#profileHeight"),
+  profileWeight: $("#profileWeight"),
+  profileGoal: $("#profileGoal"),
+  weightHistoryList: $("#weightHistoryList"),
   naverMapKey: $("#naverMapKey"),
   settingsStatus: $("#settingsStatus"),
   clearNaverKey: $("#clearNaverKey"),
@@ -69,8 +79,32 @@ function loadRecords() {
   }
 }
 
+function loadProfile() {
+  try {
+    return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function loadWeightHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(WEIGHT_HISTORY_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
 function saveRecords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records));
+}
+
+function saveProfile() {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
+}
+
+function saveWeightHistory() {
+  localStorage.setItem(WEIGHT_HISTORY_KEY, JSON.stringify(state.weightHistory));
 }
 
 function getNaverMapKey() {
@@ -89,6 +123,66 @@ function renderSettings() {
       ? "네이버 지도 키가 이 기기에 저장되어 있습니다. 경로 탭에서 네이버 지도를 우선 사용합니다."
       : "API 키는 이 기기의 브라우저에만 저장됩니다. 비워두면 OpenStreetMap을 사용합니다.",
   );
+}
+
+function renderProfile() {
+  if (elements.profileName) elements.profileName.value = state.profile.name || "";
+  if (elements.profileHeight) elements.profileHeight.value = state.profile.heightCm || "";
+  if (elements.profileWeight) elements.profileWeight.value = state.profile.weightKg || "";
+  if (elements.profileGoal) elements.profileGoal.value = state.profile.goal || "endurance";
+  renderWeightHistory();
+}
+
+function renderWeightHistory() {
+  if (!elements.weightHistoryList) return;
+
+  if (!state.weightHistory.length) {
+    elements.weightHistoryList.innerHTML = `<div class="record-item"><strong>아직 몸무게 기록이 없습니다</strong><span>프로필 저장 시 몸무게 변화가 기록됩니다.</span></div>`;
+    return;
+  }
+
+  elements.weightHistoryList.innerHTML = state.weightHistory
+    .slice(0, 8)
+    .map(
+      (entry) => `
+        <article class="record-item">
+          <strong>${entry.weightKg.toFixed(1)} kg</strong>
+          <span>${formatDate(entry.date)}</span>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function addWeightHistory(weightKg) {
+  if (!weightKg) return;
+  const latest = state.weightHistory[0];
+  if (latest && Math.abs(latest.weightKg - weightKg) < 0.05) return;
+
+  state.weightHistory = [
+    { date: new Date().toISOString(), weightKg: Number(weightKg.toFixed(1)) },
+    ...state.weightHistory,
+  ].slice(0, 120);
+  saveWeightHistory();
+}
+
+function getWeightTrend() {
+  if (state.weightHistory.length < 2) return null;
+  const latest = state.weightHistory[0];
+  const previous = state.weightHistory.find((entry) => entry.date !== latest.date) || state.weightHistory[1];
+  const diff = Number((latest.weightKg - previous.weightKg).toFixed(1));
+  if (Math.abs(diff) < 0.1) return { diff, label: "stable" };
+  return { diff, label: diff > 0 ? "up" : "down" };
+}
+
+function getProfileGoalLabel(goal) {
+  const labels = {
+    endurance: "지구력 향상",
+    fatloss: "체중 감량",
+    speed: "속도 향상",
+    health: "건강 유지",
+  };
+  return labels[goal] || "지구력 향상";
 }
 
 function formatElapsed(ms) {
@@ -656,16 +750,28 @@ function renderAnalysis() {
 function renderCoach() {
   const last = state.records[0];
   const totalDistance = state.records.reduce((sum, record) => sum + record.distanceKm, 0);
+  const profileName = state.profile.name ? `${state.profile.name}님, ` : "";
+  const goalLabel = getProfileGoalLabel(state.profile.goal);
+  const weightTrend = getWeightTrend();
+  const weightAdvice =
+    weightTrend?.label === "down"
+      ? ` 최근 몸무게가 ${Math.abs(weightTrend.diff).toFixed(1)} kg 내려갔습니다. 회복과 단백질 섭취를 함께 챙기세요.`
+      : weightTrend?.label === "up"
+        ? ` 최근 몸무게가 ${weightTrend.diff.toFixed(1)} kg 올랐습니다. 목표가 체중 감량이라면 저강도 유산소 시간을 조금 늘려보세요.`
+        : weightTrend
+          ? " 최근 몸무게는 안정적입니다. 훈련 강도를 서서히 올리기 좋습니다."
+          : "";
+
   if (!last) {
-    elements.coachMessage.textContent = "첫 기록을 남기면 거리, 속도, 빈도를 보고 맞춤 훈련을 제안합니다.";
+    elements.coachMessage.textContent = `${profileName}첫 기록을 남기면 거리, 속도, 빈도를 보고 ${goalLabel} 목표에 맞춘 훈련을 제안합니다.${weightAdvice}`;
     renderWorkout(["20분 가볍게 페달링", "5분 스트레칭", "다음 라이딩에서 거리 기준 기록 만들기"]);
     return;
   }
 
   const message =
     last.avgSpeed >= 25
-      ? `최근 평균 ${last.avgSpeed.toFixed(1)} km/h로 좋은 페이스입니다. 오늘은 고강도보다 회복 주행을 섞어 누적 피로를 관리하세요.`
-      : `최근 ${last.distanceKm.toFixed(1)} km를 기록했습니다. 총 ${totalDistance.toFixed(1)} km가 쌓였고, 다음 목표는 같은 시간에 5% 더 멀리 가기입니다.`;
+      ? `${profileName}최근 평균 ${last.avgSpeed.toFixed(1)} km/h로 좋은 페이스입니다. ${goalLabel} 목표를 유지하되, 오늘은 고강도보다 회복 주행을 섞어 누적 피로를 관리하세요.${weightAdvice}`
+      : `${profileName}최근 ${last.distanceKm.toFixed(1)} km를 기록했습니다. 총 ${totalDistance.toFixed(1)} km가 쌓였고, ${goalLabel} 목표 기준 다음 목표는 같은 시간에 5% 더 멀리 가기입니다.${weightAdvice}`;
   elements.coachMessage.textContent = message;
 }
 
@@ -771,6 +877,27 @@ elements.clearRecords.addEventListener("click", () => {
 
 elements.mapLocateMe?.addEventListener("click", centerMapOnCurrentLocation);
 
+elements.profileForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = elements.profileName.value.trim();
+  const heightCm = Number(elements.profileHeight.value);
+  const weightKg = Number(elements.profileWeight.value);
+  const goal = elements.profileGoal.value;
+
+  state.profile = {
+    name,
+    heightCm: heightCm ? Number(heightCm.toFixed(1)) : "",
+    weightKg: weightKg ? Number(weightKg.toFixed(1)) : "",
+    goal,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (weightKg) addWeightHistory(weightKg);
+  saveProfile();
+  renderProfile();
+  renderCoach();
+});
+
 elements.settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const key = elements.naverMapKey.value.trim();
@@ -829,6 +956,7 @@ window.addEventListener("orientationchange", refreshRouteMap);
 
 renderAll();
 renderSettings();
+renderProfile();
 updateRideMetrics();
 updateInstallButton();
 initializeGpsStatus();

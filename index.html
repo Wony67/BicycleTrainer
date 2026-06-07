@@ -196,6 +196,38 @@
             </div>
           </div>
 
+          <form class="ride-form" id="profileForm">
+            <label>
+              <span>이름</span>
+              <input id="profileName" maxlength="30" type="text" placeholder="예: 라이더" />
+            </label>
+            <label>
+              <span>키 cm</span>
+              <input id="profileHeight" min="80" max="230" step="0.1" type="number" placeholder="예: 175" />
+            </label>
+            <label>
+              <span>현재 몸무게 kg</span>
+              <input id="profileWeight" min="20" max="250" step="0.1" type="number" placeholder="예: 72.5" />
+            </label>
+            <label>
+              <span>목표</span>
+              <select id="profileGoal">
+                <option value="endurance">지구력 향상</option>
+                <option value="fatloss">체중 감량</option>
+                <option value="speed">속도 향상</option>
+                <option value="health">건강 유지</option>
+              </select>
+            </label>
+            <button type="submit">프로필 저장</button>
+          </form>
+
+          <section class="timeline" aria-label="몸무게 히스토리">
+            <div class="section-heading">
+              <h2>몸무게 히스토리</h2>
+            </div>
+            <div id="weightHistoryList" class="records-list"></div>
+          </section>
+
           <form class="ride-form" id="settingsForm">
             <label>
               <span>네이버 지도 ncpKeyId</span>
