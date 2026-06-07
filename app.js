@@ -39,6 +39,7 @@ const elements = {
   manualRideForm: $("#manualRideForm"),
   clearRecords: $("#clearRecords"),
   locateMe: $("#locateMe"),
+  mapLocateMe: $("#mapLocateMe"),
   routeMap: $("#routeMap"),
   mapStatus: $("#mapStatus"),
   coords: $("#coords"),
@@ -289,6 +290,18 @@ function syncMapPosition(latLng, accuracy) {
   invalidateMapSize();
   state.map.setView(latLng, Math.max(state.map.getZoom(), 16), { animate: true });
   setMapStatus("현재 위치가 지도에 표시되었습니다.", "ready");
+}
+
+function centerMapOnCurrentLocation() {
+  refreshRouteMap();
+
+  if (state.lastPosition) {
+    const latLng = [state.lastPosition.latitude, state.lastPosition.longitude];
+    syncMapPosition(latLng, state.mapAccuracy?.getRadius?.() || 30);
+    return;
+  }
+
+  checkGpsOnce();
 }
 
 function refreshRouteMap() {
@@ -587,6 +600,8 @@ elements.clearRecords.addEventListener("click", () => {
 elements.locateMe.addEventListener("click", () => {
   checkGpsOnce();
 });
+
+elements.mapLocateMe?.addEventListener("click", centerMapOnCurrentLocation);
 
 elements.routeForm.addEventListener("submit", (event) => {
   event.preventDefault();

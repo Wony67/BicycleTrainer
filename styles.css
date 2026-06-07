@@ -394,6 +394,21 @@ select {
   color: #9f3a21;
 }
 
+.map-locate-button {
+  position: absolute;
+  right: 14px;
+  top: 64px;
+  z-index: 510;
+  min-height: 42px;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 10px 25px rgba(8, 28, 22, 0.18);
+}
+
 .location-card {
   position: absolute;
   left: 14px;
