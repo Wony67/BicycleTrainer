@@ -92,7 +92,8 @@ h2 {
   font-weight: 700;
 }
 
-.install-action {
+.install-action,
+.gps-action {
   min-height: 36px;
   border-radius: 8px;
   padding: 0 12px;
@@ -100,6 +101,10 @@ h2 {
   color: #fff;
   font-size: 13px;
   font-weight: 800;
+}
+
+.gps-action {
+  background: var(--green);
 }
 
 .install-action[hidden] {

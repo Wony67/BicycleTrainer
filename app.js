@@ -17,6 +17,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 const elements = {
   installApp: $("#installApp"),
+  gpsCheck: $("#gpsCheck"),
   gpsStatus: $("#gpsStatus"),
   rideToggle: $("#rideToggle"),
   elapsed: $("#elapsed"),
@@ -85,6 +86,99 @@ function setGpsStatus(message) {
   elements.gpsStatus.textContent = message;
 }
 
+function isSecureGpsContext() {
+  return window.isSecureContext || ["localhost", "127.0.0.1"].includes(window.location.hostname);
+}
+
+function getGpsErrorMessage(error) {
+  if (!isSecureGpsContext()) return "HTTPS 필요";
+  if (!error) return "GPS 오류";
+  if (error.code === error.PERMISSION_DENIED) return "권한 거부됨";
+  if (error.code === error.POSITION_UNAVAILABLE) return "신호 없음";
+  if (error.code === error.TIMEOUT) return "GPS 대기 중";
+  return "GPS 오류";
+}
+
+function updatePosition(position) {
+  const current = {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+  };
+
+  if (state.riding && state.lastPosition) {
+    const nextDistance = haversineKm(state.lastPosition, current);
+    if (nextDistance < 0.2) {
+      state.distanceKm += nextDistance;
+    }
+  }
+
+  state.currentSpeed = Math.max(0, (position.coords.speed || 0) * 3.6);
+  state.lastPosition = current;
+  elements.coords.textContent = `${current.latitude.toFixed(5)}, ${current.longitude.toFixed(5)}`;
+  setGpsStatus("GPS 수신");
+  updateRideMetrics();
+}
+
+function checkGpsOnce() {
+  if (!isSecureGpsContext()) {
+    setGpsStatus("HTTPS 필요");
+    elements.coords.textContent = "GPS는 HTTPS 또는 localhost에서만 동작합니다.";
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    setGpsStatus("GPS 미지원");
+    elements.coords.textContent = "이 브라우저는 위치 기능을 지원하지 않습니다.";
+    return;
+  }
+
+  setGpsStatus("GPS 확인 중");
+  navigator.geolocation.getCurrentPosition(
+    updatePosition,
+    (error) => {
+      const message = getGpsErrorMessage(error);
+      setGpsStatus(message);
+      elements.coords.textContent =
+        message === "권한 거부됨"
+          ? "브라우저 설정에서 위치 권한을 허용해야 합니다."
+          : "하늘이 잘 보이는 곳에서 다시 시도하세요.";
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
+  );
+}
+
+function initializeGpsStatus() {
+  if (!isSecureGpsContext()) {
+    setGpsStatus("HTTPS 필요");
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    setGpsStatus("GPS 미지원");
+    return;
+  }
+
+  if (!navigator.permissions?.query) {
+    setGpsStatus("GPS 준비");
+    return;
+  }
+
+  navigator.permissions
+    .query({ name: "geolocation" })
+    .then((permission) => {
+      const labels = {
+        granted: "GPS 허용됨",
+        prompt: "GPS 준비",
+        denied: "권한 거부됨",
+      };
+      setGpsStatus(labels[permission.state] || "GPS 준비");
+      permission.addEventListener("change", () => {
+        setGpsStatus(labels[permission.state] || "GPS 준비");
+      });
+    })
+    .catch(() => setGpsStatus("GPS 준비"));
+}
+
 function updateRideMetrics() {
   const elapsedMs = state.riding ? Date.now() - state.startedAt : 0;
   const elapsedHours = elapsedMs / 3600000;
@@ -95,39 +189,31 @@ function updateRideMetrics() {
 }
 
 function startRide() {
-  state.riding = true;
-  state.startedAt = Date.now();
-  state.distanceKm = 0;
-  state.currentSpeed = 0;
-  state.lastPosition = null;
-  elements.rideToggle.textContent = "종료";
-  setGpsStatus("GPS 추적 중");
-  state.elapsedTimer = setInterval(updateRideMetrics, 1000);
+  if (!isSecureGpsContext()) {
+    setGpsStatus("HTTPS 필요");
+    return;
+  }
 
   if (!navigator.geolocation) {
     setGpsStatus("GPS 미지원");
     return;
   }
 
+  state.riding = true;
+  state.startedAt = Date.now();
+  state.distanceKm = 0;
+  state.currentSpeed = 0;
+  state.lastPosition = null;
+  elements.rideToggle.textContent = "종료";
+  setGpsStatus("GPS 연결 중");
+  state.elapsedTimer = setInterval(updateRideMetrics, 1000);
+
   state.watchId = navigator.geolocation.watchPosition(
-    (position) => {
-      const current = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      };
-      if (state.lastPosition) {
-        const nextDistance = haversineKm(state.lastPosition, current);
-        if (nextDistance < 0.2) {
-          state.distanceKm += nextDistance;
-        }
-      }
-      state.currentSpeed = Math.max(0, (position.coords.speed || 0) * 3.6);
-      state.lastPosition = current;
-      elements.coords.textContent = `${current.latitude.toFixed(5)}, ${current.longitude.toFixed(5)}`;
-      updateRideMetrics();
+    updatePosition,
+    (error) => {
+      setGpsStatus(getGpsErrorMessage(error));
     },
-    () => setGpsStatus("GPS 권한 필요"),
-    { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 },
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
   );
 }
 
@@ -291,6 +377,8 @@ elements.rideToggle.addEventListener("click", () => {
   else startRide();
 });
 
+elements.gpsCheck?.addEventListener("click", checkGpsOnce);
+
 elements.manualRideForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const distanceKm = Number($("#manualDistance").value);
@@ -365,3 +453,4 @@ if ("serviceWorker" in navigator) {
 renderAll();
 updateRideMetrics();
 updateInstallButton();
+initializeGpsStatus();
