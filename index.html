@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0e7c66" />
+    <title>Bicycle Trainer</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Smart Ride Companion</p>
+          <h1>Bicycle Trainer</h1>
+        </div>
+        <div class="top-actions">
+          <button class="install-action" id="installApp" type="button">설치 안내</button>
+          <div class="status-pill" id="gpsStatus">GPS 대기</div>
+        </div>
+      </header>
+
+      <main>
+        <section class="view active" id="view-ride" aria-labelledby="ride-title">
+          <div class="hero-panel">
+            <div>
+              <p class="section-kicker">오늘의 라이딩</p>
+              <h2 id="ride-title">기록을 시작하세요</h2>
+            </div>
+            <button class="primary-action" id="rideToggle" type="button">시작</button>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric">
+              <span>시간</span>
+              <strong id="elapsed">00:00</strong>
+            </article>
+            <article class="metric">
+              <span>거리</span>
+              <strong><span id="distance">0.00</span> km</strong>
+            </article>
+            <article class="metric">
+              <span>평균 속도</span>
+              <strong><span id="avgSpeed">0.0</span> km/h</strong>
+            </article>
+            <article class="metric">
+              <span>현재 속도</span>
+              <strong><span id="speed">0.0</span> km/h</strong>
+            </article>
+          </div>
+
+          <form class="ride-form" id="manualRideForm">
+            <label>
+              <span>실내 주행 거리 km</span>
+              <input id="manualDistance" min="0" step="0.1" type="number" placeholder="예: 18.5" />
+            </label>
+            <label>
+              <span>운동 시간 분</span>
+              <input id="manualMinutes" min="1" step="1" type="number" placeholder="예: 45" />
+            </label>
+            <label>
+              <span>메모</span>
+              <input id="manualNote" maxlength="80" type="text" placeholder="컨디션, 코스, 케이던스 등" />
+            </label>
+            <button type="submit">수동 기록 저장</button>
+          </form>
+
+          <section class="timeline" aria-label="최근 주행 기록">
+            <div class="section-heading">
+              <h2>최근 기록</h2>
+              <button class="ghost" id="clearRecords" type="button">비우기</button>
+            </div>
+            <div id="recordsList" class="records-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-route" aria-labelledby="route-title">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Route Guide</p>
+              <h2 id="route-title">경로 안내</h2>
+            </div>
+            <button class="ghost" id="locateMe" type="button">현재 위치</button>
+          </div>
+
+          <div class="map-panel">
+            <div class="route-line"></div>
+            <div class="route-dot start"></div>
+            <div class="route-dot mid"></div>
+            <div class="route-dot finish"></div>
+            <div class="location-card">
+              <span>현재 좌표</span>
+              <strong id="coords">위치 권한 필요</strong>
+            </div>
+          </div>
+
+          <form class="ride-form" id="routeForm">
+            <label>
+              <span>목적지 이름</span>
+              <input id="destination" maxlength="40" type="text" placeholder="예: 한강공원" />
+            </label>
+            <label>
+              <span>예상 거리 km</span>
+              <input id="routeDistance" min="0" step="0.1" type="number" placeholder="예: 12" />
+            </label>
+            <button type="submit">경로 저장</button>
+          </form>
+
+          <div class="route-advice" id="routeAdvice">목적지와 거리를 저장하면 페이스 안내가 표시됩니다.</div>
+        </section>
+
+        <section class="view" id="view-coach" aria-labelledby="coach-title">
+          <div class="coach-card">
+            <p class="section-kicker">AI Coach</p>
+            <h2 id="coach-title">오늘의 코칭</h2>
+            <p id="coachMessage">최근 기록을 기반으로 훈련 강도와 회복 조언을 제안합니다.</p>
+          </div>
+
+          <form class="ride-form" id="coachForm">
+            <label>
+              <span>오늘 컨디션</span>
+              <select id="condition">
+                <option value="good">좋음</option>
+                <option value="normal" selected>보통</option>
+                <option value="tired">피곤함</option>
+              </select>
+            </label>
+            <label>
+              <span>목표</span>
+              <select id="goal">
+                <option value="endurance">지구력</option>
+                <option value="fatloss">체중 감량</option>
+                <option value="speed">속도 향상</option>
+              </select>
+            </label>
+            <button type="submit">코칭 받기</button>
+          </form>
+
+          <div class="workout-list" id="workoutPlan"></div>
+        </section>
+
+        <section class="view" id="view-analysis" aria-labelledby="analysis-title">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Ride Analytics</p>
+              <h2 id="analysis-title">운동 분석</h2>
+            </div>
+          </div>
+
+          <div class="metric-grid analysis-grid">
+            <article class="metric">
+              <span>총 거리</span>
+              <strong><span id="totalDistance">0.0</span> km</strong>
+            </article>
+            <article class="metric">
+              <span>총 시간</span>
+              <strong><span id="totalTime">0</span> 분</strong>
+            </article>
+            <article class="metric">
+              <span>최장 주행</span>
+              <strong><span id="bestDistance">0.0</span> km</strong>
+            </article>
+            <article class="metric">
+              <span>주간 빈도</span>
+              <strong><span id="weeklyCount">0</span> 회</strong>
+            </article>
+          </div>
+
+          <div class="chart-card">
+            <div class="section-heading">
+              <h2>최근 7회 거리</h2>
+            </div>
+            <div class="bar-chart" id="distanceChart"></div>
+          </div>
+        </section>
+      </main>
+
+      <nav class="tabbar" aria-label="앱 메뉴">
+        <button class="tab active" data-view="ride" type="button">기록</button>
+        <button class="tab" data-view="route" type="button">경로</button>
+        <button class="tab" data-view="coach" type="button">코치</button>
+        <button class="tab" data-view="analysis" type="button">분석</button>
+      </nav>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
