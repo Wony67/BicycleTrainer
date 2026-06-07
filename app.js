@@ -41,7 +41,6 @@ const elements = {
   recordsList: $("#recordsList"),
   manualRideForm: $("#manualRideForm"),
   clearRecords: $("#clearRecords"),
-  locateMe: $("#locateMe"),
   mapLocateMe: $("#mapLocateMe"),
   routeMap: $("#routeMap"),
   mapStatus: $("#mapStatus"),
@@ -768,10 +767,6 @@ elements.clearRecords.addEventListener("click", () => {
   state.records = [];
   saveRecords();
   renderAll();
-});
-
-elements.locateMe.addEventListener("click", () => {
-  checkGpsOnce();
 });
 
 elements.mapLocateMe?.addEventListener("click", centerMapOnCurrentLocation);
