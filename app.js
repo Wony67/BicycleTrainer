@@ -250,7 +250,10 @@ function createLocationIcon() {
 
 function invalidateMapSize() {
   if (!state.map) return;
-  [0, 80, 250, 700].forEach((delay) => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => state.map.invalidateSize({ pan: false }));
+  });
+  [80, 250, 700, 1400].forEach((delay) => {
     setTimeout(() => state.map.invalidateSize({ pan: false }), delay);
   });
 }
@@ -516,7 +519,11 @@ function renderAll() {
 function switchView(viewName) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${viewName}`));
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === viewName));
-  if (viewName === "route") refreshRouteMap();
+  if (viewName === "route") {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(refreshRouteMap);
+    });
+  }
 }
 
 function isStandaloneApp() {
@@ -633,6 +640,9 @@ $$(".tab").forEach((tab) => {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").then(setupAppUpdates).catch(() => {});
 }
+
+window.addEventListener("resize", refreshRouteMap);
+window.addEventListener("orientationchange", refreshRouteMap);
 
 renderAll();
 updateRideMetrics();
