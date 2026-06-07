@@ -15,12 +15,17 @@ const state = {
   mapMarker: null,
   mapAccuracy: null,
   mapRoute: null,
+  updateRegistration: null,
+  waitingWorker: null,
+  reloadingForUpdate: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 const elements = {
+  updateBanner: $("#updateBanner"),
+  updateNow: $("#updateNow"),
   installApp: $("#installApp"),
   gpsCheck: $("#gpsCheck"),
   gpsStatus: $("#gpsStatus"),
@@ -90,6 +95,66 @@ function haversineKm(a, b) {
 
 function setGpsStatus(message) {
   elements.gpsStatus.textContent = message;
+}
+
+function showUpdateBanner(registration) {
+  state.updateRegistration = registration;
+  state.waitingWorker = registration.waiting;
+  if (!state.waitingWorker || !elements.updateBanner) return;
+  elements.updateBanner.hidden = false;
+}
+
+function hideUpdateBanner() {
+  if (elements.updateBanner) elements.updateBanner.hidden = true;
+}
+
+function watchInstallingWorker(registration) {
+  const worker = registration.installing;
+  if (!worker) return;
+
+  worker.addEventListener("statechange", () => {
+    if (worker.state === "installed" && navigator.serviceWorker.controller) {
+      showUpdateBanner(registration);
+    }
+  });
+}
+
+function setupAppUpdates(registration) {
+  state.updateRegistration = registration;
+
+  if (registration.waiting) {
+    showUpdateBanner(registration);
+  }
+
+  registration.addEventListener("updatefound", () => watchInstallingWorker(registration));
+
+  window.addEventListener("focus", () => {
+    registration.update().catch(() => {});
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      registration.update().catch(() => {});
+    }
+  });
+
+  setInterval(() => {
+    registration.update().catch(() => {});
+  }, 30 * 60 * 1000);
+}
+
+function applyAppUpdate() {
+  if (!state.waitingWorker) return;
+  hideUpdateBanner();
+  state.waitingWorker.postMessage({ type: "SKIP_WAITING" });
+}
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (state.reloadingForUpdate) return;
+    state.reloadingForUpdate = true;
+    window.location.reload();
+  });
 }
 
 function isSecureGpsContext() {
@@ -443,6 +508,8 @@ elements.installApp?.addEventListener("click", async () => {
   await promptEvent.prompt();
 });
 
+elements.updateNow?.addEventListener("click", applyAppUpdate);
+
 elements.rideToggle.addEventListener("click", () => {
   if (state.riding) stopRide();
   else startRide();
@@ -504,7 +571,7 @@ $$(".tab").forEach((tab) => {
 });
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js").catch(() => {});
+  navigator.serviceWorker.register("service-worker.js").then(setupAppUpdates).catch(() => {});
 }
 
 renderAll();
