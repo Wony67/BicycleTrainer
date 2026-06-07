@@ -262,6 +262,24 @@ select {
   color: var(--text);
 }
 
+.key-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.key-clear-button {
+  min-width: 58px;
+  min-height: 46px;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #f1e5e0;
+  color: #9f3a21;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .ride-form button,
 .ghost {
   min-height: 44px;
@@ -476,16 +494,6 @@ select {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
-}
-
-.danger-action {
-  width: 100%;
-  min-height: 44px;
-  margin-top: 14px;
-  border-radius: 8px;
-  background: #f1e5e0;
-  color: #9f3a21;
-  font-weight: 800;
 }
 
 .analysis-grid {

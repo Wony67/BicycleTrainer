@@ -231,11 +231,17 @@
           <form class="ride-form" id="settingsForm">
             <label>
               <span>OpenAI API Key</span>
-              <input id="openAiKey" autocomplete="off" type="password" placeholder="sk-..." />
+              <div class="key-input-row">
+                <input id="openAiKey" autocomplete="off" type="password" placeholder="sk-..." />
+                <button class="key-clear-button" id="clearOpenAiKey" type="button" aria-label="OpenAI 키 삭제">삭제</button>
+              </div>
             </label>
             <label>
               <span>네이버 지도 ncpKeyId</span>
-              <input id="naverMapKey" autocomplete="off" type="password" placeholder="NAVER Cloud Platform 키 입력" />
+              <div class="key-input-row">
+                <input id="naverMapKey" autocomplete="off" type="password" placeholder="NAVER Cloud Platform 키 입력" />
+                <button class="key-clear-button" id="clearNaverKey" type="button" aria-label="네이버 지도 키 삭제">삭제</button>
+              </div>
             </label>
             <button type="submit">저장</button>
           </form>
@@ -244,8 +250,6 @@
             API 키는 이 기기의 브라우저에만 저장됩니다.
           </div>
 
-          <button class="danger-action" id="clearOpenAiKey" type="button">OpenAI 키 삭제</button>
-          <button class="danger-action" id="clearNaverKey" type="button">네이버 지도 키 삭제</button>
         </section>
       </main>
 
