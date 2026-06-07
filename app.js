@@ -15,6 +15,7 @@ const state = {
   mapMarker: null,
   mapAccuracy: null,
   mapRoute: null,
+  mapResizeObserver: null,
   updateRegistration: null,
   waitingWorker: null,
   reloadingForUpdate: false,
@@ -227,9 +228,30 @@ function initRouteMap() {
     opacity: 0.9,
   }).addTo(state.map);
 
+  if ("ResizeObserver" in window) {
+    state.mapResizeObserver = new ResizeObserver(() => invalidateMapSize());
+    state.mapResizeObserver.observe(elements.routeMap);
+  }
+
   setMapStatus("지도가 준비되었습니다. 현재 위치를 누르면 내 위치로 이동합니다.", "ready");
-  setTimeout(() => state.map.invalidateSize(), 120);
+  invalidateMapSize();
   return true;
+}
+
+function createLocationIcon() {
+  return L.divIcon({
+    className: "",
+    html: '<div class="my-location-marker" aria-hidden="true"></div>',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
+function invalidateMapSize() {
+  if (!state.map) return;
+  [0, 80, 250, 700].forEach((delay) => {
+    setTimeout(() => state.map.invalidateSize({ pan: false }), delay);
+  });
 }
 
 function syncMapPosition(latLng, accuracy) {
@@ -237,7 +259,12 @@ function syncMapPosition(latLng, accuracy) {
   if (!state.map) return;
 
   if (!state.mapMarker) {
-    state.mapMarker = L.marker(latLng).addTo(state.map).bindPopup("현재 위치");
+    state.mapMarker = L.marker(latLng, {
+      icon: createLocationIcon(),
+      keyboard: false,
+      title: "내 위치",
+      zIndexOffset: 1000,
+    }).addTo(state.map).bindPopup("내 위치");
   } else {
     state.mapMarker.setLatLng(latLng);
   }
@@ -259,14 +286,15 @@ function syncMapPosition(latLng, accuracy) {
     state.mapRoute.setLatLngs(state.routePoints);
   }
 
-  state.map.setView(latLng, Math.max(state.map.getZoom(), 16));
+  invalidateMapSize();
+  state.map.setView(latLng, Math.max(state.map.getZoom(), 16), { animate: true });
   setMapStatus("현재 위치가 지도에 표시되었습니다.", "ready");
 }
 
 function refreshRouteMap() {
   if (!initRouteMap()) return;
   if (!state.map) return;
-  setTimeout(() => state.map.invalidateSize(), 120);
+  invalidateMapSize();
 }
 
 function checkGpsOnce() {

@@ -324,7 +324,8 @@ select {
 
 .map-panel {
   position: relative;
-  min-height: 330px;
+  height: min(62vh, 560px);
+  min-height: 420px;
   overflow: hidden;
   border-radius: 8px;
   background: #dce7e1;
@@ -335,6 +336,38 @@ select {
   position: absolute;
   inset: 0;
   z-index: 1;
+}
+
+.route-map,
+.route-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
+.my-location-marker {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.18), 0 8px 18px rgba(8, 28, 22, 0.25);
+}
+
+.my-location-marker::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
 }
 
 .map-status {
@@ -448,5 +481,12 @@ select {
 @media (min-width: 720px) {
   .app-shell {
     padding-top: 22px;
+  }
+}
+
+@media (max-width: 430px) {
+  .map-panel {
+    height: 58vh;
+    min-height: 380px;
   }
 }
