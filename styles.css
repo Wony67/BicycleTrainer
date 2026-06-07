@@ -337,6 +337,30 @@ select {
   z-index: 1;
 }
 
+.map-status {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 14px;
+  z-index: 500;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  box-shadow: 0 10px 25px rgba(8, 28, 22, 0.12);
+}
+
+.map-status.ready {
+  color: var(--green-dark);
+}
+
+.map-status.error {
+  color: #9f3a21;
+}
+
 .location-card {
   position: absolute;
   left: 14px;

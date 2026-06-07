@@ -39,6 +39,7 @@ const elements = {
   clearRecords: $("#clearRecords"),
   locateMe: $("#locateMe"),
   routeMap: $("#routeMap"),
+  mapStatus: $("#mapStatus"),
   coords: $("#coords"),
   routeForm: $("#routeForm"),
   routeAdvice: $("#routeAdvice"),
@@ -95,6 +96,13 @@ function haversineKm(a, b) {
 
 function setGpsStatus(message) {
   elements.gpsStatus.textContent = message;
+}
+
+function setMapStatus(message, status = "") {
+  if (!elements.mapStatus) return;
+  elements.mapStatus.textContent = message;
+  elements.mapStatus.classList.toggle("ready", status === "ready");
+  elements.mapStatus.classList.toggle("error", status === "error");
 }
 
 function showUpdateBanner(registration) {
@@ -196,7 +204,11 @@ function updatePosition(position) {
 }
 
 function initRouteMap() {
-  if (state.map || !elements.routeMap || !window.L) return;
+  if (state.map || !elements.routeMap) return Boolean(state.map);
+  if (!window.L) {
+    setMapStatus("지도 라이브러리를 불러오지 못했습니다. 네트워크 연결 후 새로고침하세요.", "error");
+    return false;
+  }
 
   const defaultCenter = [37.5665, 126.978];
   state.map = L.map(elements.routeMap, {
@@ -214,10 +226,14 @@ function initRouteMap() {
     weight: 5,
     opacity: 0.9,
   }).addTo(state.map);
+
+  setMapStatus("지도가 준비되었습니다. 현재 위치를 누르면 내 위치로 이동합니다.", "ready");
+  setTimeout(() => state.map.invalidateSize(), 120);
+  return true;
 }
 
 function syncMapPosition(latLng, accuracy) {
-  initRouteMap();
+  if (!initRouteMap()) return;
   if (!state.map) return;
 
   if (!state.mapMarker) {
@@ -244,12 +260,13 @@ function syncMapPosition(latLng, accuracy) {
   }
 
   state.map.setView(latLng, Math.max(state.map.getZoom(), 16));
+  setMapStatus("현재 위치가 지도에 표시되었습니다.", "ready");
 }
 
 function refreshRouteMap() {
-  initRouteMap();
+  if (!initRouteMap()) return;
   if (!state.map) return;
-  setTimeout(() => state.map.invalidateSize(), 80);
+  setTimeout(() => state.map.invalidateSize(), 120);
 }
 
 function checkGpsOnce() {
@@ -578,4 +595,3 @@ renderAll();
 updateRideMetrics();
 updateInstallButton();
 initializeGpsStatus();
-initRouteMap();
