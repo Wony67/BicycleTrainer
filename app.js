@@ -1,5 +1,6 @@
 const STORAGE_KEY = "bicycle-trainer-records";
 const NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
+const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
 
@@ -67,8 +68,10 @@ const elements = {
   profileGoal: $("#profileGoal"),
   weightHistoryList: $("#weightHistoryList"),
   naverMapKey: $("#naverMapKey"),
+  openAiKey: $("#openAiKey"),
   settingsStatus: $("#settingsStatus"),
   clearNaverKey: $("#clearNaverKey"),
+  clearOpenAiKey: $("#clearOpenAiKey"),
 };
 
 function loadRecords() {
@@ -111,17 +114,25 @@ function getNaverMapKey() {
   return localStorage.getItem(NAVER_MAP_KEY) || "";
 }
 
+function getOpenAiKey() {
+  return localStorage.getItem(OPENAI_API_KEY) || "";
+}
+
 function setSettingsStatus(message) {
   if (elements.settingsStatus) elements.settingsStatus.textContent = message;
 }
 
 function renderSettings() {
   const key = getNaverMapKey();
+  const openAiKey = getOpenAiKey();
   if (elements.naverMapKey) elements.naverMapKey.value = key;
+  if (elements.openAiKey) elements.openAiKey.value = openAiKey;
   setSettingsStatus(
-    key
-      ? "네이버 지도 키가 이 기기에 저장되어 있습니다. 경로 탭에서 네이버 지도를 우선 사용합니다."
-      : "API 키는 이 기기의 브라우저에만 저장됩니다. 비워두면 OpenStreetMap을 사용합니다.",
+    [
+      openAiKey ? "OpenAI 키 저장됨: AI 코치가 실제 API를 사용합니다." : "OpenAI 키 없음: 로컬 규칙 기반 코치를 사용합니다.",
+      key ? "네이버 지도 키 저장됨: 경로 탭에서 네이버 지도를 우선 사용합니다." : "네이버 지도 키 없음: OpenStreetMap을 사용합니다.",
+      "API 키는 이 기기의 브라우저에만 저장됩니다.",
+    ].join(" "),
   );
 }
 
@@ -781,6 +792,90 @@ function renderWorkout(items) {
     .join("");
 }
 
+function getLocalWorkoutPlan(condition, goal) {
+  const plans = {
+    endurance: ["10분 워밍업", "30분 일정 페이스 유지", "마지막 5분 가볍게 정리"],
+    fatloss: ["8분 워밍업", "3분 빠르게 + 2분 천천히를 6회", "수분 보충 후 5분 쿨다운"],
+    speed: ["12분 워밍업", "30초 전력 + 90초 회복을 8회", "케이던스 안정화 10분"],
+    health: ["10분 워밍업", "20분 편안한 강도 유지", "호흡을 낮추며 5분 마무리"],
+  };
+  const tiredPlan = ["20분 저강도 회복 주행", "호흡이 편한 강도 유지", "운동 후 하체 스트레칭"];
+  return condition === "tired" ? tiredPlan : plans[goal] || plans.endurance;
+}
+
+function buildCoachContext(condition, goal) {
+  const recentRecords = state.records.slice(0, 8).map((record) => ({
+    date: record.date,
+    distanceKm: record.distanceKm,
+    minutes: record.minutes,
+    avgSpeed: record.avgSpeed,
+    note: record.note,
+  }));
+
+  return {
+    condition,
+    selectedGoal: goal,
+    profile: state.profile,
+    weightHistory: state.weightHistory.slice(0, 10),
+    recentRecords,
+    totals: {
+      totalDistanceKm: Number(state.records.reduce((sum, record) => sum + record.distanceKm, 0).toFixed(1)),
+      totalMinutes: state.records.reduce((sum, record) => sum + record.minutes, 0),
+    },
+  };
+}
+
+function extractOpenAiText(data) {
+  if (data.output_text) return data.output_text.trim();
+  const parts = [];
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (content.type === "output_text" && content.text) parts.push(content.text);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+async function requestAiCoach(condition, goal) {
+  const apiKey = getOpenAiKey();
+  if (!apiKey) return null;
+
+  const context = buildCoachContext(condition, goal);
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      instructions:
+        "You are a Korean cycling coach for a personal bicycle trainer app. Give practical, safe, concise coaching. Do not provide medical diagnosis. Respond in Korean with one short paragraph and exactly three workout steps, one per line, prefixed with '1.', '2.', '3.'.",
+      input: `라이더 데이터: ${JSON.stringify(context)}`,
+      max_output_tokens: 450,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `OpenAI API error ${response.status}`);
+  }
+
+  return extractOpenAiText(await response.json());
+}
+
+function applyCoachText(text) {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const steps = lines.filter((line) => /^\d+\./.test(line)).map((line) => line.replace(/^\d+\.\s*/, ""));
+  const message = lines.filter((line) => !/^\d+\./.test(line)).join(" ");
+
+  if (message) elements.coachMessage.textContent = message;
+  if (steps.length) renderWorkout(steps.slice(0, 3));
+}
+
 function renderAll() {
   renderRecords();
   renderAnalysis();
@@ -900,7 +995,14 @@ elements.profileForm?.addEventListener("submit", (event) => {
 
 elements.settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
+  const openAiKey = elements.openAiKey.value.trim();
   const key = elements.naverMapKey.value.trim();
+  if (openAiKey) {
+    localStorage.setItem(OPENAI_API_KEY, openAiKey);
+  } else {
+    localStorage.removeItem(OPENAI_API_KEY);
+  }
+
   if (key) {
     localStorage.setItem(NAVER_MAP_KEY, key);
     resetRouteMap();
@@ -911,6 +1013,12 @@ elements.settingsForm?.addEventListener("submit", (event) => {
     setSettingsStatus("네이버 지도 키를 비웠습니다. OpenStreetMap을 사용합니다.");
   }
   renderSettings();
+});
+
+elements.clearOpenAiKey?.addEventListener("click", () => {
+  localStorage.removeItem(OPENAI_API_KEY);
+  renderSettings();
+  setSettingsStatus("OpenAI 키를 삭제했습니다. 로컬 규칙 기반 코치를 사용합니다.");
 });
 
 elements.clearNaverKey?.addEventListener("click", () => {
@@ -930,17 +1038,29 @@ elements.routeForm.addEventListener("submit", (event) => {
   elements.routeAdvice.textContent = `${destination}까지 약 ${distance.toFixed(1)} km입니다. 회복 주행은 ${easyMinutes}분, 템포 주행은 ${tempoMinutes}분 정도로 계획하세요.`;
 });
 
-elements.coachForm.addEventListener("submit", (event) => {
+elements.coachForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const condition = $("#condition").value;
   const goal = $("#goal").value;
-  const plans = {
-    endurance: ["10분 워밍업", "30분 일정 페이스 유지", "마지막 5분 가볍게 정리"],
-    fatloss: ["8분 워밍업", "3분 빠르게 + 2분 천천히를 6회", "수분 보충 후 5분 쿨다운"],
-    speed: ["12분 워밍업", "30초 전력 + 90초 회복을 8회", "케이던스 안정화 10분"],
-  };
-  const tiredPlan = ["20분 저강도 회복 주행", "호흡이 편한 강도 유지", "운동 후 하체 스트레칭"];
-  renderWorkout(condition === "tired" ? tiredPlan : plans[goal]);
+  const localPlan = getLocalWorkoutPlan(condition, goal);
+
+  if (!getOpenAiKey()) {
+    renderWorkout(localPlan);
+    renderCoach();
+    return;
+  }
+
+  elements.coachMessage.textContent = "AI 코치가 최근 기록과 프로필을 분석하는 중입니다.";
+  renderWorkout(["최근 기록 정리", "목표와 컨디션 분석", "맞춤 훈련 생성"]);
+
+  try {
+    const aiText = await requestAiCoach(condition, goal);
+    if (aiText) applyCoachText(aiText);
+    else renderWorkout(localPlan);
+  } catch {
+    elements.coachMessage.textContent = "AI 코치 호출에 실패했습니다. 로컬 코칭으로 대신 제안합니다.";
+    renderWorkout(localPlan);
+  }
 });
 
 $$(".tab").forEach((tab) => {
