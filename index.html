@@ -117,9 +117,10 @@
               <span>예상 거리 km</span>
               <input id="routeDistance" min="0" step="0.1" type="number" placeholder="예: 12" />
             </label>
-            <button type="submit">경로 저장</button>
+            <button type="submit">목적지 검색</button>
           </form>
 
+          <div class="route-results" id="routeResults" aria-live="polite"></div>
           <div class="route-advice" id="routeAdvice">목적지와 거리를 저장하면 페이스 안내가 표시됩니다.</div>
         </section>
 

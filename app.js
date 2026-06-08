@@ -22,9 +22,12 @@ const state = {
   mapMarker: null,
   mapAccuracy: null,
   mapRoute: null,
+  destinationMarker: null,
+  destinationLine: null,
   mapResizeObserver: null,
   mapProvider: null,
   kakaoMapLoading: false,
+  kakaoPlaces: null,
   updateRegistration: null,
   waitingWorker: null,
   reloadingForUpdate: false,
@@ -53,6 +56,9 @@ const elements = {
   coords: $("#coords"),
   routeForm: $("#routeForm"),
   routeAdvice: $("#routeAdvice"),
+  routeResults: $("#routeResults"),
+  destination: $("#destination"),
+  routeDistance: $("#routeDistance"),
   coachForm: $("#coachForm"),
   coachMessage: $("#coachMessage"),
   workoutPlan: $("#workoutPlan"),
@@ -219,6 +225,19 @@ function formatDate(dateString) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(dateString));
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[char];
+  });
 }
 
 function haversineKm(a, b) {
@@ -404,6 +423,7 @@ function initKakaoRouteMap(kakaoKey) {
     strokeOpacity: 0.9,
     strokeWeight: 5,
   });
+  state.kakaoPlaces = window.kakao.maps.services ? new kakao.maps.services.Places(state.map) : null;
 
   if ("ResizeObserver" in window) {
     state.mapResizeObserver = new ResizeObserver(() => invalidateMapSize());
@@ -421,7 +441,7 @@ function loadKakaoMapScript(kakaoKey) {
   setMapStatus("카카오맵을 불러오는 중입니다.", "ready");
 
   const script = document.createElement("script");
-  script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(kakaoKey)}&autoload=false`;
+  script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(kakaoKey)}&autoload=false&libraries=services`;
   script.async = true;
   script.onload = () => {
     window.kakao.maps.load(() => {
@@ -556,6 +576,120 @@ function centerMapOnCurrentLocation() {
   checkGpsOnce();
 }
 
+function clearDestinationGuide() {
+  state.destinationMarker?.setMap?.(null);
+  state.destinationLine?.setMap?.(null);
+  state.destinationMarker = null;
+  state.destinationLine = null;
+}
+
+function renderRouteResults(results) {
+  if (!elements.routeResults) return;
+  elements.routeResults.innerHTML = "";
+
+  results.forEach((place) => {
+    const button = document.createElement("button");
+    button.className = "route-result";
+    button.type = "button";
+    button.innerHTML = `
+      <strong>${escapeHtml(place.place_name || "목적지")}</strong>
+      <span>${escapeHtml(place.road_address_name || place.address_name || "주소 정보 없음")}</span>
+    `;
+    button.addEventListener("click", () => selectDestination(place));
+    elements.routeResults.appendChild(button);
+  });
+}
+
+function searchDestination(keyword) {
+  if (!keyword) return;
+  if (!getKakaoMapKey()) {
+    updateRouteAdvice(keyword, Number(elements.routeDistance?.value) || 0);
+    setMapStatus("카카오맵 키를 설정하면 목적지 검색을 사용할 수 있습니다.", "error");
+    return;
+  }
+
+  if (!initRouteMap()) return;
+  if (!state.kakaoPlaces) {
+    setMapStatus("카카오 장소 검색을 준비하는 중입니다. 잠시 후 다시 시도하세요.", "ready");
+    return;
+  }
+
+  setMapStatus("목적지를 검색하는 중입니다.", "ready");
+  const options = {
+    size: 5,
+  };
+  if (state.lastPosition) {
+    options.location = new kakao.maps.LatLng(state.lastPosition.latitude, state.lastPosition.longitude);
+    options.radius = 20000;
+    options.sort = kakao.maps.services.SortBy.DISTANCE;
+  }
+
+  state.kakaoPlaces.keywordSearch(keyword, (results, status) => {
+    if (status === kakao.maps.services.Status.OK) {
+      renderRouteResults(results);
+      setMapStatus("검색 결과에서 목적지를 선택하세요.", "ready");
+      return;
+    }
+
+    elements.routeResults.innerHTML = "";
+    if (status === kakao.maps.services.Status.ZERO_RESULT) {
+      setMapStatus("검색 결과가 없습니다. 목적지 이름을 조금 더 구체적으로 입력하세요.", "error");
+      return;
+    }
+    setMapStatus("목적지 검색에 실패했습니다. 잠시 후 다시 시도하세요.", "error");
+  }, options);
+}
+
+function selectDestination(place) {
+  if (state.mapProvider !== "kakao" || !state.map) return;
+  const destination = {
+    latitude: Number(place.y),
+    longitude: Number(place.x),
+  };
+  const destinationLatLng = new kakao.maps.LatLng(destination.latitude, destination.longitude);
+
+  clearDestinationGuide();
+  state.destinationMarker = new kakao.maps.Marker({
+    position: destinationLatLng,
+    map: state.map,
+    title: place.place_name,
+  });
+
+  let distanceKm = Number(elements.routeDistance?.value) || 0;
+  if (state.lastPosition) {
+    const startLatLng = [state.lastPosition.latitude, state.lastPosition.longitude];
+    const endLatLng = [destination.latitude, destination.longitude];
+    distanceKm = haversineKm(state.lastPosition, destination);
+    if (elements.routeDistance) elements.routeDistance.value = distanceKm.toFixed(1);
+    state.destinationLine = new kakao.maps.Polyline({
+      map: state.map,
+      path: [toProviderLatLng(startLatLng), destinationLatLng],
+      strokeColor: "#2563eb",
+      strokeOpacity: 0.75,
+      strokeStyle: "shortdash",
+      strokeWeight: 4,
+    });
+  }
+
+  if (elements.destination) elements.destination.value = place.place_name || "";
+  state.map.setCenter(destinationLatLng);
+  state.map.setLevel(Math.min(state.map.getLevel(), 5));
+  updateRouteAdvice(place.place_name || "목적지", distanceKm, Boolean(state.lastPosition));
+  setMapStatus("목적지를 지도에 표시했습니다.", "ready");
+}
+
+function updateRouteAdvice(destination, distance, isEstimated = false) {
+  if (!distance) {
+    elements.routeAdvice.textContent = `${destination} 목적지를 선택했습니다. GPS 위치가 잡히면 거리 안내를 계산할 수 있습니다.`;
+    return;
+  }
+
+  const easyMinutes = Math.round((distance / 18) * 60);
+  const tempoMinutes = Math.round((distance / 24) * 60);
+  const prefix = isEstimated ? "직선거리 기준으로 " : "";
+  elements.routeAdvice.textContent = `${destination}까지 ${prefix}약 ${distance.toFixed(1)} km입니다. 회복 주행은 ${easyMinutes}분, 템포 주행은 ${tempoMinutes}분 정도로 계획하세요.`;
+}
+
 function refreshRouteMap() {
   if (!initRouteMap()) return;
   if (!state.map) return;
@@ -573,14 +707,19 @@ function resetRouteMap() {
   }
 
   if (state.mapProvider === "kakao") {
-    [state.mapMarker, state.mapAccuracy, state.mapRoute].forEach((item) => item?.setMap?.(null));
+    [state.mapMarker, state.mapAccuracy, state.mapRoute, state.destinationMarker, state.destinationLine].forEach((item) =>
+      item?.setMap?.(null),
+    );
   }
 
   state.map = null;
   state.mapMarker = null;
   state.mapAccuracy = null;
   state.mapRoute = null;
+  state.destinationMarker = null;
+  state.destinationLine = null;
   state.mapProvider = null;
+  state.kakaoPlaces = null;
   if (elements.routeMap) elements.routeMap.innerHTML = "";
 }
 
@@ -1068,12 +1207,13 @@ elements.clearKakaoKey?.addEventListener("click", () => {
 
 elements.routeForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const destination = $("#destination").value.trim() || "목적지";
-  const distance = Number($("#routeDistance").value);
-  if (!distance) return;
-  const easyMinutes = Math.round((distance / 18) * 60);
-  const tempoMinutes = Math.round((distance / 24) * 60);
-  elements.routeAdvice.textContent = `${destination}까지 약 ${distance.toFixed(1)} km입니다. 회복 주행은 ${easyMinutes}분, 템포 주행은 ${tempoMinutes}분 정도로 계획하세요.`;
+  const destination = elements.destination.value.trim();
+  const distance = Number(elements.routeDistance.value);
+  if (destination) {
+    searchDestination(destination);
+    return;
+  }
+  if (distance) updateRouteAdvice("목적지", distance);
 });
 
 elements.coachForm.addEventListener("submit", async (event) => {

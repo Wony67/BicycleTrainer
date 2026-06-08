@@ -212,7 +212,8 @@ h2 {
 .ride-form,
 .timeline,
 .chart-card,
-.route-advice {
+.route-advice,
+.route-result {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -483,6 +484,32 @@ select {
   margin-top: 14px;
   padding: 16px;
   line-height: 1.55;
+}
+
+.route-results {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.route-result {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px;
+  color: var(--text);
+  text-align: left;
+}
+
+.route-result strong {
+  font-size: 15px;
+}
+
+.route-result span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .settings-note {
