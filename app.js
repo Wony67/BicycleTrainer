@@ -946,7 +946,74 @@ function getLocalWorkoutPlan(condition, goal) {
   return condition === "tired" ? tiredPlan : plans[goal] || plans.endurance;
 }
 
-function buildCoachContext(condition, goal) {
+function getWeatherLabel(code) {
+  if (code === 0) return "맑음";
+  if ([1, 2, 3].includes(code)) return "구름";
+  if ([45, 48].includes(code)) return "안개";
+  if ([51, 53, 55, 56, 57].includes(code)) return "이슬비";
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "비";
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return "눈";
+  if ([95, 96, 99].includes(code)) return "뇌우";
+  return "날씨 정보";
+}
+
+async function fetchTodayWeather() {
+  if (!state.lastPosition) return null;
+
+  const latitude = state.lastPosition.latitude.toFixed(4);
+  const longitude = state.lastPosition.longitude.toFixed(4);
+  const params = new URLSearchParams({
+    latitude,
+    longitude,
+    daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max",
+    timezone: "auto",
+    forecast_days: "1",
+  });
+
+  try {
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const daily = data.daily || {};
+    const code = daily.weather_code?.[0];
+    return {
+      source: "Open-Meteo",
+      location: {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+      },
+      date: daily.time?.[0] || new Date().toISOString().slice(0, 10),
+      condition: getWeatherLabel(code),
+      weatherCode: code,
+      maxTempC: daily.temperature_2m_max?.[0],
+      minTempC: daily.temperature_2m_min?.[0],
+      precipitationProbabilityMaxPct: daily.precipitation_probability_max?.[0],
+      windSpeedMaxKmh: daily.wind_speed_10m_max?.[0],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getWeatherCoachNote(weather) {
+  if (!weather) return "";
+  const rain = weather.precipitationProbabilityMaxPct;
+  const wind = weather.windSpeedMaxKmh;
+  const tempMax = weather.maxTempC;
+  const parts = [`오늘 현재 위치 예보는 ${weather.condition}`];
+  if (Number.isFinite(tempMax)) parts.push(`최고 ${Math.round(tempMax)}도`);
+  if (Number.isFinite(rain)) parts.push(`강수확률 ${Math.round(rain)}%`);
+  if (Number.isFinite(wind)) parts.push(`최대풍속 ${Math.round(wind)}km/h`);
+  return `${parts.join(", ")}입니다.`;
+}
+
+function applyWeatherCoachNote(weather) {
+  const note = getWeatherCoachNote(weather);
+  if (!note) return;
+  elements.coachMessage.textContent = `${elements.coachMessage.textContent} ${note}`;
+}
+
+function buildCoachContext(condition, goal, weather = null) {
   const recentRecords = state.records.slice(0, 8).map((record) => ({
     date: record.date,
     distanceKm: record.distanceKm,
@@ -959,6 +1026,13 @@ function buildCoachContext(condition, goal) {
     condition,
     selectedGoal: goal,
     profile: state.profile,
+    currentLocation: state.lastPosition
+      ? {
+          latitude: Number(state.lastPosition.latitude.toFixed(5)),
+          longitude: Number(state.lastPosition.longitude.toFixed(5)),
+        }
+      : null,
+    todayWeather: weather,
     weightHistory: state.weightHistory.slice(0, 10),
     recentRecords,
     totals: {
@@ -979,11 +1053,11 @@ function extractOpenAiText(data) {
   return parts.join("\n").trim();
 }
 
-async function requestAiCoach(condition, goal) {
+async function requestAiCoach(condition, goal, weather = null) {
   const apiKey = getOpenAiKey();
   if (!apiKey) return null;
 
-  const context = buildCoachContext(condition, goal);
+  const context = buildCoachContext(condition, goal, weather);
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -1222,17 +1296,25 @@ elements.coachForm.addEventListener("submit", async (event) => {
   const goal = $("#goal").value;
   const localPlan = getLocalWorkoutPlan(condition, goal);
 
+  elements.coachMessage.textContent = state.lastPosition
+    ? "현재 위치의 오늘 예보와 최근 기록을 확인하는 중입니다."
+    : "최근 기록과 프로필을 분석하는 중입니다. GPS 위치가 잡히면 오늘 예보도 함께 반영합니다.";
+  const weather = await fetchTodayWeather();
+
   if (!getOpenAiKey()) {
     renderWorkout(localPlan);
     renderCoach();
+    applyWeatherCoachNote(weather);
     return;
   }
 
-  elements.coachMessage.textContent = "AI 코치가 최근 기록과 프로필을 분석하는 중입니다.";
+  elements.coachMessage.textContent = weather
+    ? "AI 코치가 오늘 예보와 최근 기록을 함께 분석하는 중입니다."
+    : "AI 코치가 최근 기록과 프로필을 분석하는 중입니다.";
   renderWorkout(["최근 기록 정리", "목표와 컨디션 분석", "맞춤 훈련 생성"]);
 
   try {
-    const aiText = await requestAiCoach(condition, goal);
+    const aiText = await requestAiCoach(condition, goal, weather);
     if (aiText) applyCoachText(aiText);
     else renderWorkout(localPlan);
   } catch (error) {
