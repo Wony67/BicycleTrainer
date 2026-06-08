@@ -1,5 +1,6 @@
 const STORAGE_KEY = "bicycle-trainer-records";
-const NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
+const KAKAO_MAP_KEY = "bicycle-trainer-kakao-map-key";
+const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
@@ -23,7 +24,7 @@ const state = {
   mapRoute: null,
   mapResizeObserver: null,
   mapProvider: null,
-  naverMapLoading: false,
+  kakaoMapLoading: false,
   updateRegistration: null,
   waitingWorker: null,
   reloadingForUpdate: false,
@@ -67,10 +68,10 @@ const elements = {
   profileWeight: $("#profileWeight"),
   profileGoal: $("#profileGoal"),
   weightHistoryList: $("#weightHistoryList"),
-  naverMapKey: $("#naverMapKey"),
+  kakaoMapKey: $("#kakaoMapKey"),
   openAiKey: $("#openAiKey"),
   settingsStatus: $("#settingsStatus"),
-  clearNaverKey: $("#clearNaverKey"),
+  clearKakaoKey: $("#clearKakaoKey"),
   clearOpenAiKey: $("#clearOpenAiKey"),
 };
 
@@ -110,8 +111,8 @@ function saveWeightHistory() {
   localStorage.setItem(WEIGHT_HISTORY_KEY, JSON.stringify(state.weightHistory));
 }
 
-function getNaverMapKey() {
-  return localStorage.getItem(NAVER_MAP_KEY) || "";
+function getKakaoMapKey() {
+  return localStorage.getItem(KAKAO_MAP_KEY) || "";
 }
 
 function getOpenAiKey() {
@@ -131,14 +132,14 @@ function setSettingsStatus(message) {
 }
 
 function renderSettings() {
-  const key = getNaverMapKey();
+  const key = getKakaoMapKey();
   const openAiKey = getOpenAiKey();
-  if (elements.naverMapKey) elements.naverMapKey.value = key;
+  if (elements.kakaoMapKey) elements.kakaoMapKey.value = key;
   if (elements.openAiKey) elements.openAiKey.value = openAiKey;
   setSettingsStatus(
     [
       openAiKey ? "OpenAI 키 저장됨: AI 코치가 실제 API를 사용합니다." : "OpenAI 키 없음: 로컬 규칙 기반 코치를 사용합니다.",
-      key ? "네이버 지도 키 저장됨: 경로 탭에서 네이버 지도를 우선 사용합니다." : "네이버 지도 키 없음: OpenStreetMap을 사용합니다.",
+      key ? "카카오맵 키 저장됨: 경로 탭에서 카카오맵을 우선 사용합니다." : "카카오맵 키 없음: OpenStreetMap을 사용합니다.",
       "API 키는 이 기기의 브라우저에만 저장됩니다.",
     ].join(" "),
   );
@@ -344,8 +345,8 @@ function updatePosition(position) {
 
 function initRouteMap() {
   if (state.map || !elements.routeMap) return Boolean(state.map);
-  const naverKey = getNaverMapKey();
-  if (naverKey) return initNaverRouteMap(naverKey);
+  const kakaoKey = getKakaoMapKey();
+  if (kakaoKey) return initKakaoRouteMap(kakaoKey);
   return initLeafletRouteMap();
 }
 
@@ -383,24 +384,20 @@ function initLeafletRouteMap() {
   return true;
 }
 
-function initNaverRouteMap(naverKey) {
-  if (!window.naver?.maps) {
-    loadNaverMapScript(naverKey);
+function initKakaoRouteMap(kakaoKey) {
+  if (!window.kakao?.maps) {
+    loadKakaoMapScript(kakaoKey);
     return false;
   }
 
-  const defaultCenter = new naver.maps.LatLng(37.5665, 126.978);
-  state.mapProvider = "naver";
-  state.map = new naver.maps.Map(elements.routeMap, {
+  const defaultCenter = new kakao.maps.LatLng(37.5665, 126.978);
+  state.mapProvider = "kakao";
+  state.map = new kakao.maps.Map(elements.routeMap, {
     center: defaultCenter,
-    zoom: 12,
-    zoomControl: true,
-    zoomControlOptions: {
-      position: naver.maps.Position.TOP_LEFT,
-    },
+    level: 5,
   });
 
-  state.mapRoute = new naver.maps.Polyline({
+  state.mapRoute = new kakao.maps.Polyline({
     map: state.map,
     path: [],
     strokeColor: "#0e7c66",
@@ -413,27 +410,29 @@ function initNaverRouteMap(naverKey) {
     state.mapResizeObserver.observe(elements.routeMap);
   }
 
-  setMapStatus("네이버 지도가 준비되었습니다. 현재 위치를 누르면 내 위치로 이동합니다.", "ready");
+  setMapStatus("카카오맵이 준비되었습니다. 현재 위치를 누르면 내 위치로 이동합니다.", "ready");
   invalidateMapSize();
   return true;
 }
 
-function loadNaverMapScript(naverKey) {
-  if (state.naverMapLoading) return;
-  state.naverMapLoading = true;
-  setMapStatus("네이버 지도를 불러오는 중입니다.", "ready");
+function loadKakaoMapScript(kakaoKey) {
+  if (state.kakaoMapLoading) return;
+  state.kakaoMapLoading = true;
+  setMapStatus("카카오맵을 불러오는 중입니다.", "ready");
 
   const script = document.createElement("script");
-  script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverKey)}`;
+  script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(kakaoKey)}&autoload=false`;
   script.async = true;
   script.onload = () => {
-    state.naverMapLoading = false;
-    initRouteMap();
-    refreshRouteMap();
+    window.kakao.maps.load(() => {
+      state.kakaoMapLoading = false;
+      initRouteMap();
+      refreshRouteMap();
+    });
   };
   script.onerror = () => {
-    state.naverMapLoading = false;
-    setMapStatus("네이버 지도를 불러오지 못했습니다. API 키와 허용 도메인을 확인하세요.", "error");
+    state.kakaoMapLoading = false;
+    setMapStatus("카카오맵을 불러오지 못했습니다. JavaScript 키와 허용 도메인을 확인하세요.", "error");
   };
   document.head.appendChild(script);
 }
@@ -448,15 +447,17 @@ function createLocationIcon() {
 }
 
 function toProviderLatLng(latLng) {
-  if (state.mapProvider === "naver") return new naver.maps.LatLng(latLng[0], latLng[1]);
+  if (state.mapProvider === "kakao") return new kakao.maps.LatLng(latLng[0], latLng[1]);
   return latLng;
 }
 
 function invalidateMapSize() {
   if (!state.map) return;
-  if (state.mapProvider === "naver") {
+  if (state.mapProvider === "kakao") {
     [0, 80, 250, 700, 1400].forEach((delay) => {
-      setTimeout(() => naver.maps.Event.trigger(state.map, "resize"), delay);
+      setTimeout(() => {
+        state.map.relayout();
+      }, delay);
     });
     return;
   }
@@ -475,16 +476,11 @@ function syncMapPosition(latLng, accuracy) {
   const providerLatLng = toProviderLatLng(latLng);
 
   if (!state.mapMarker) {
-    if (state.mapProvider === "naver") {
-      state.mapMarker = new naver.maps.Marker({
+    if (state.mapProvider === "kakao") {
+      state.mapMarker = new kakao.maps.Marker({
         position: providerLatLng,
         map: state.map,
         title: "내 위치",
-        icon: {
-          content: '<div class="my-location-marker" aria-hidden="true"></div>',
-          size: new naver.maps.Size(22, 22),
-          anchor: new naver.maps.Point(11, 11),
-        },
       });
     } else {
       state.mapMarker = L.marker(latLng, {
@@ -495,13 +491,13 @@ function syncMapPosition(latLng, accuracy) {
       }).addTo(state.map).bindPopup("내 위치");
     }
   } else {
-    if (state.mapProvider === "naver") state.mapMarker.setPosition(providerLatLng);
+    if (state.mapProvider === "kakao") state.mapMarker.setPosition(providerLatLng);
     else state.mapMarker.setLatLng(latLng);
   }
 
   if (!state.mapAccuracy) {
-    if (state.mapProvider === "naver") {
-      state.mapAccuracy = new naver.maps.Circle({
+    if (state.mapProvider === "kakao") {
+      state.mapAccuracy = new kakao.maps.Circle({
         map: state.map,
         center: providerLatLng,
         radius: accuracy || 30,
@@ -521,8 +517,8 @@ function syncMapPosition(latLng, accuracy) {
       }).addTo(state.map);
     }
   } else {
-    if (state.mapProvider === "naver") {
-      state.mapAccuracy.setCenter(providerLatLng);
+    if (state.mapProvider === "kakao") {
+      state.mapAccuracy.setPosition(providerLatLng);
       state.mapAccuracy.setRadius(accuracy || 30);
     } else {
       state.mapAccuracy.setLatLng(latLng);
@@ -531,7 +527,7 @@ function syncMapPosition(latLng, accuracy) {
   }
 
   if (state.mapRoute) {
-    if (state.mapProvider === "naver") {
+    if (state.mapProvider === "kakao") {
       state.mapRoute.setPath(state.routePoints.map(toProviderLatLng));
     } else {
       state.mapRoute.setLatLngs(state.routePoints);
@@ -539,9 +535,9 @@ function syncMapPosition(latLng, accuracy) {
   }
 
   invalidateMapSize();
-  if (state.mapProvider === "naver") {
+  if (state.mapProvider === "kakao") {
     state.map.setCenter(providerLatLng);
-    state.map.setZoom(Math.max(state.map.getZoom(), 16));
+    state.map.setLevel(Math.min(state.map.getLevel(), 4));
   } else {
     state.map.setView(latLng, Math.max(state.map.getZoom(), 16), { animate: true });
   }
@@ -576,7 +572,7 @@ function resetRouteMap() {
     state.map.remove();
   }
 
-  if (state.mapProvider === "naver") {
+  if (state.mapProvider === "kakao") {
     [state.mapMarker, state.mapAccuracy, state.mapRoute].forEach((item) => item?.setMap?.(null));
   }
 
@@ -675,7 +671,7 @@ function startRide() {
   state.lastPosition = null;
   state.routePoints = [];
   if (state.mapRoute) {
-    if (state.mapProvider === "naver") state.mapRoute.setPath([]);
+    if (state.mapProvider === "kakao") state.mapRoute.setPath([]);
     else state.mapRoute.setLatLngs([]);
   }
   elements.rideToggle.textContent = "종료";
@@ -1034,19 +1030,20 @@ elements.profileForm?.addEventListener("submit", (event) => {
 elements.settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const openAiKey = elements.openAiKey.value.trim();
-  const key = elements.naverMapKey.value.trim();
+  const key = elements.kakaoMapKey.value.trim();
   if (openAiKey) {
     localStorage.setItem(OPENAI_API_KEY, openAiKey);
   }
 
   if (key) {
-    localStorage.setItem(NAVER_MAP_KEY, key);
+    localStorage.setItem(KAKAO_MAP_KEY, key);
+    localStorage.removeItem(LEGACY_NAVER_MAP_KEY);
     resetRouteMap();
-    setSettingsStatus("네이버 지도 키를 저장했습니다. 경로 탭에서 네이버 지도를 불러옵니다.");
+    setSettingsStatus("카카오맵 키를 저장했습니다. 경로 탭에서 카카오맵을 불러옵니다.");
   } else {
-    localStorage.removeItem(NAVER_MAP_KEY);
+    localStorage.removeItem(KAKAO_MAP_KEY);
     resetRouteMap();
-    setSettingsStatus("네이버 지도 키를 비웠습니다. OpenStreetMap을 사용합니다.");
+    setSettingsStatus("카카오맵 키를 비웠습니다. OpenStreetMap을 사용합니다.");
   }
   renderSettings();
 });
@@ -1061,11 +1058,12 @@ elements.clearOpenAiKey?.addEventListener("click", () => {
   setSettingsStatus("OpenAI 키를 삭제했습니다. 로컬 규칙 기반 코치를 사용합니다.");
 });
 
-elements.clearNaverKey?.addEventListener("click", () => {
-  localStorage.removeItem(NAVER_MAP_KEY);
+elements.clearKakaoKey?.addEventListener("click", () => {
+  localStorage.removeItem(KAKAO_MAP_KEY);
+  localStorage.removeItem(LEGACY_NAVER_MAP_KEY);
   resetRouteMap();
   renderSettings();
-  setSettingsStatus("네이버 지도 키를 삭제했습니다. OpenStreetMap을 사용합니다.");
+  setSettingsStatus("카카오맵 키를 삭제했습니다. OpenStreetMap을 사용합니다.");
 });
 
 elements.routeForm.addEventListener("submit", (event) => {
