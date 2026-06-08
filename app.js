@@ -118,6 +118,14 @@ function getOpenAiKey() {
   return localStorage.getItem(OPENAI_API_KEY) || "";
 }
 
+function saveOpenAiKeyFromInput() {
+  if (!elements.openAiKey) return;
+  const key = elements.openAiKey.value.trim();
+  if (!key) return;
+  localStorage.setItem(OPENAI_API_KEY, key);
+  setSettingsStatus("OpenAI 키를 저장했습니다. 앱을 다시 열어도 이 기기에 유지됩니다.");
+}
+
 function setSettingsStatus(message) {
   if (elements.settingsStatus) elements.settingsStatus.textContent = message;
 }
@@ -999,8 +1007,6 @@ elements.settingsForm?.addEventListener("submit", (event) => {
   const key = elements.naverMapKey.value.trim();
   if (openAiKey) {
     localStorage.setItem(OPENAI_API_KEY, openAiKey);
-  } else {
-    localStorage.removeItem(OPENAI_API_KEY);
   }
 
   if (key) {
@@ -1015,8 +1021,12 @@ elements.settingsForm?.addEventListener("submit", (event) => {
   renderSettings();
 });
 
+elements.openAiKey?.addEventListener("change", saveOpenAiKeyFromInput);
+elements.openAiKey?.addEventListener("blur", saveOpenAiKeyFromInput);
+
 elements.clearOpenAiKey?.addEventListener("click", () => {
   localStorage.removeItem(OPENAI_API_KEY);
+  if (elements.openAiKey) elements.openAiKey.value = "";
   renderSettings();
   setSettingsStatus("OpenAI 키를 삭제했습니다. 로컬 규칙 기반 코치를 사용합니다.");
 });
