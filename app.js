@@ -865,11 +865,41 @@ async function requestAiCoach(condition, goal) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || `OpenAI API error ${response.status}`);
+    let message = `OpenAI API 오류 ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      message = errorJson.error?.message || message;
+    } catch {
+      const errorText = await response.text().catch(() => "");
+      message = errorText || message;
+    }
+    throw new Error(message);
   }
 
   return extractOpenAiText(await response.json());
+}
+
+function getAiCoachErrorMessage(error) {
+  const message = error?.message || "";
+  const lower = message.toLowerCase();
+
+  if (lower.includes("401") || lower.includes("incorrect api key") || lower.includes("invalid api key")) {
+    return "OpenAI 키가 올바르지 않습니다. 설정 탭에서 키를 다시 확인하세요.";
+  }
+
+  if (lower.includes("quota") || lower.includes("billing") || lower.includes("429")) {
+    return "OpenAI 사용량 한도 또는 결제 설정 문제로 호출에 실패했습니다.";
+  }
+
+  if (lower.includes("model") || lower.includes("does not exist") || lower.includes("access")) {
+    return "현재 API 키가 요청한 모델을 사용할 수 없습니다.";
+  }
+
+  if (error instanceof TypeError || lower.includes("failed to fetch") || lower.includes("network")) {
+    return "네트워크 또는 브라우저 보안 정책 때문에 OpenAI 호출에 실패했습니다.";
+  }
+
+  return message ? `OpenAI 호출 실패: ${message}` : "OpenAI 호출에 실패했습니다.";
 }
 
 function applyCoachText(text) {
@@ -1067,8 +1097,8 @@ elements.coachForm.addEventListener("submit", async (event) => {
     const aiText = await requestAiCoach(condition, goal);
     if (aiText) applyCoachText(aiText);
     else renderWorkout(localPlan);
-  } catch {
-    elements.coachMessage.textContent = "AI 코치 호출에 실패했습니다. 로컬 코칭으로 대신 제안합니다.";
+  } catch (error) {
+    elements.coachMessage.textContent = `${getAiCoachErrorMessage(error)} 로컬 코칭으로 대신 제안합니다.`;
     renderWorkout(localPlan);
   }
 });
