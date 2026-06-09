@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 4;
-const APP_VERSION_NAME = "1.0.3";
+const APP_VERSION_CODE = 5;
+const APP_VERSION_NAME = "1.0.4";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIREBASE_CONFIG = {
@@ -1183,15 +1183,16 @@ async function signInToCloud() {
     return;
   }
 
+  if (isNativeApp()) {
+    setCloudStatus(
+      "Android 앱에서는 Google 웹 로그인이 https://localhost로 돌아가며 막힐 수 있습니다. 다음 버전에서 네이티브 Google 로그인을 연결해야 합니다.",
+    );
+    return;
+  }
+
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
-
-    if (isNativeApp()) {
-      setCloudStatus("Android 앱에서는 Google 웹 로그인이 제한될 수 있습니다. 리다이렉트 로그인을 시도합니다.");
-      await state.firebaseAuth.signInWithRedirect(provider);
-      return;
-    }
 
     await state.firebaseAuth.signInWithPopup(provider);
   } catch (error) {

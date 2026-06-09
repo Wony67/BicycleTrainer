@@ -1,4 +1,4 @@
-const CACHE_NAME = "bicycle-trainer-v23";
+const CACHE_NAME = "bicycle-trainer-v24";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./icon.svg", "./version.json"];
 
 self.addEventListener("install", (event) => {
