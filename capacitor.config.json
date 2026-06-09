@@ -1,0 +1,8 @@
+{
+  "appId": "com.wony67.bicycletrainer",
+  "appName": "Bicycle Trainer",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

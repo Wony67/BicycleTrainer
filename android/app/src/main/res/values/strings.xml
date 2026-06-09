@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Bicycle Trainer</string>
+    <string name="title_activity_main">Bicycle Trainer</string>
+    <string name="package_name">com.wony67.bicycletrainer</string>
+    <string name="custom_url_scheme">com.wony67.bicycletrainer</string>
+</resources>

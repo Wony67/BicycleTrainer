@@ -1,0 +1,19 @@
+{
+  "name": "bicycle-trainer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bicycle Trainer mobile app",
+  "scripts": {
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-capacitor-web.ps1",
+    "cap:add:android": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-capacitor-web.ps1 && cap add android",
+    "cap:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-capacitor-web.ps1 && cap sync android",
+    "cap:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  }
+}
