@@ -4,10 +4,19 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 2;
-const APP_VERSION_NAME = "1.0.1";
+const APP_VERSION_CODE = 3;
+const APP_VERSION_NAME = "1.0.2";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDH56iQLm6_ItENRTIwI2-GRT8Pp16e7L4",
+  authDomain: "bicycle-trainer-c027e.firebaseapp.com",
+  projectId: "bicycle-trainer-c027e",
+  storageBucket: "bicycle-trainer-c027e.firebasestorage.app",
+  messagingSenderId: "771348409840",
+  appId: "1:771348409840:web:9f7a6fcfcc00bd0b734135",
+  measurementId: "G-EXJ0GCK1R5",
+};
 
 const state = {
   records: loadRecords(),
@@ -35,6 +44,10 @@ const state = {
   updateRegistration: null,
   waitingWorker: null,
   nativeUpdateInfo: null,
+  firebaseReady: false,
+  firebaseAuth: null,
+  firebaseDb: null,
+  cloudUser: null,
   reloadingForUpdate: false,
 };
 
@@ -84,6 +97,11 @@ const elements = {
   kakaoMapKey: $("#kakaoMapKey"),
   openAiKey: $("#openAiKey"),
   settingsStatus: $("#settingsStatus"),
+  firebaseLogin: $("#firebaseLogin"),
+  firebaseLogout: $("#firebaseLogout"),
+  cloudBackup: $("#cloudBackup"),
+  cloudRestore: $("#cloudRestore"),
+  cloudStatus: $("#cloudStatus"),
   clearKakaoKey: $("#clearKakaoKey"),
   clearOpenAiKey: $("#clearOpenAiKey"),
 };
@@ -144,6 +162,31 @@ function setSettingsStatus(message) {
   if (elements.settingsStatus) elements.settingsStatus.textContent = message;
 }
 
+function setCloudStatus(message) {
+  if (elements.cloudStatus) elements.cloudStatus.textContent = message;
+}
+
+function renderCloudControls() {
+  const signedIn = Boolean(state.cloudUser);
+  if (elements.firebaseLogin) elements.firebaseLogin.hidden = signedIn;
+  if (elements.firebaseLogout) elements.firebaseLogout.hidden = !signedIn;
+  if (elements.cloudBackup) elements.cloudBackup.disabled = !signedIn;
+  if (elements.cloudRestore) elements.cloudRestore.disabled = !signedIn;
+
+  if (!state.firebaseReady) {
+    setCloudStatus("Firebase SDK를 불러오지 못했습니다. 네트워크 연결을 확인하세요.");
+    return;
+  }
+
+  if (signedIn) {
+    const label = state.cloudUser.displayName || state.cloudUser.email || "로그인 사용자";
+    setCloudStatus(`${label} 계정으로 연결되었습니다. API 키는 클라우드에 저장하지 않습니다.`);
+    return;
+  }
+
+  setCloudStatus("Google 로그인 후 주행기록, 프로필, 몸무게 히스토리를 클라우드에 백업할 수 있습니다.");
+}
+
 function renderSettings() {
   const key = getKakaoMapKey();
   const openAiKey = getOpenAiKey();
@@ -156,6 +199,7 @@ function renderSettings() {
       "API 키는 이 기기의 브라우저에만 저장됩니다.",
     ].join(" "),
   );
+  renderCloudControls();
 }
 
 function renderProfile() {
@@ -1061,6 +1105,101 @@ function applyWeatherCoachNote(weather) {
   elements.coachMessage.textContent = `${elements.coachMessage.textContent} ${note}`;
 }
 
+function initFirebase() {
+  if (!window.firebase?.initializeApp) {
+    renderCloudControls();
+    return;
+  }
+
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    state.firebaseAuth = firebase.auth();
+    state.firebaseDb = firebase.firestore();
+    state.firebaseReady = true;
+    state.firebaseAuth.onAuthStateChanged((user) => {
+      state.cloudUser = user;
+      renderCloudControls();
+    });
+  } catch (error) {
+    state.firebaseReady = false;
+    setCloudStatus(`Firebase 초기화 실패: ${error.message}`);
+  }
+}
+
+function getCloudDocRef() {
+  if (!state.cloudUser || !state.firebaseDb) return null;
+  return state.firebaseDb.collection("users").doc(state.cloudUser.uid).collection("appState").doc("current");
+}
+
+function getCloudPayload() {
+  return {
+    versionCode: APP_VERSION_CODE,
+    versionName: APP_VERSION_NAME,
+    profile: state.profile,
+    records: state.records,
+    weightHistory: state.weightHistory,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+}
+
+async function signInToCloud() {
+  if (!state.firebaseAuth) {
+    setCloudStatus("Firebase가 아직 준비되지 않았습니다.");
+    return;
+  }
+
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await state.firebaseAuth.signInWithPopup(provider);
+  } catch (error) {
+    setCloudStatus(`로그인 실패: ${error.message}`);
+  }
+}
+
+async function signOutFromCloud() {
+  if (!state.firebaseAuth) return;
+  await state.firebaseAuth.signOut();
+}
+
+async function backupToCloud() {
+  const docRef = getCloudDocRef();
+  if (!docRef) return;
+
+  try {
+    await docRef.set(getCloudPayload(), { merge: true });
+    setCloudStatus("클라우드 백업을 완료했습니다.");
+  } catch (error) {
+    setCloudStatus(`클라우드 백업 실패: ${error.message}`);
+  }
+}
+
+async function restoreFromCloud() {
+  const docRef = getCloudDocRef();
+  if (!docRef) return;
+
+  try {
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      setCloudStatus("복원할 클라우드 백업이 없습니다.");
+      return;
+    }
+
+    const data = snapshot.data();
+    state.profile = data.profile || {};
+    state.records = Array.isArray(data.records) ? data.records : [];
+    state.weightHistory = Array.isArray(data.weightHistory) ? data.weightHistory : [];
+    saveProfile();
+    saveRecords();
+    saveWeightHistory();
+    renderAll();
+    renderProfile();
+    renderSettings();
+    setCloudStatus("클라우드 백업을 이 기기에 복원했습니다.");
+  } catch (error) {
+    setCloudStatus(`클라우드 복원 실패: ${error.message}`);
+  }
+}
+
 function buildCoachContext(condition, goal, weather = null) {
   const recentRecords = state.records.slice(0, 8).map((record) => ({
     date: record.date,
@@ -1327,6 +1466,11 @@ elements.clearKakaoKey?.addEventListener("click", () => {
   setSettingsStatus("카카오맵 키를 삭제했습니다. OpenStreetMap을 사용합니다.");
 });
 
+elements.firebaseLogin?.addEventListener("click", signInToCloud);
+elements.firebaseLogout?.addEventListener("click", signOutFromCloud);
+elements.cloudBackup?.addEventListener("click", backupToCloud);
+elements.cloudRestore?.addEventListener("click", restoreFromCloud);
+
 elements.routeForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const destination = elements.destination.value.trim();
@@ -1382,6 +1526,7 @@ if ("serviceWorker" in navigator && !isNativeApp()) {
 window.addEventListener("resize", refreshRouteMap);
 window.addEventListener("orientationchange", refreshRouteMap);
 
+initFirebase();
 renderAll();
 renderSettings();
 renderProfile();

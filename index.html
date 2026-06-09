@@ -251,6 +251,19 @@
             API 키는 이 기기의 브라우저에만 저장됩니다.
           </div>
 
+          <section class="timeline" aria-label="클라우드 동기화">
+            <div class="section-heading">
+              <h2>클라우드 동기화</h2>
+            </div>
+            <div class="cloud-actions">
+              <button class="ghost" id="firebaseLogin" type="button">Google 로그인</button>
+              <button class="ghost" id="firebaseLogout" type="button" hidden>로그아웃</button>
+              <button class="ghost" id="cloudBackup" type="button" disabled>클라우드 백업</button>
+              <button class="ghost" id="cloudRestore" type="button" disabled>클라우드 복원</button>
+            </div>
+            <div class="settings-note" id="cloudStatus">Firebase 연결 준비 중입니다.</div>
+          </section>
+
         </section>
       </main>
 
@@ -268,6 +281,9 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    <script src="https://www.gstatic.com/firebasejs/12.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.7.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore-compat.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
