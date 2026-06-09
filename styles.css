@@ -361,6 +361,10 @@ select {
   font-weight: 800;
 }
 
+.record-delete-actions[hidden] {
+  display: none;
+}
+
 .danger-action,
 .compact-action {
   min-height: 40px;
