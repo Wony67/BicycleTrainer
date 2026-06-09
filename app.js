@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 3;
-const APP_VERSION_NAME = "1.0.2";
+const APP_VERSION_CODE = 4;
+const APP_VERSION_NAME = "1.0.3";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIREBASE_CONFIG = {
@@ -1116,6 +1116,14 @@ function initFirebase() {
     state.firebaseAuth = firebase.auth();
     state.firebaseDb = firebase.firestore();
     state.firebaseReady = true;
+    state.firebaseAuth
+      .getRedirectResult()
+      .then((result) => {
+        if (result.user) setCloudStatus("Google 로그인이 완료되었습니다.");
+      })
+      .catch((error) => {
+        setCloudStatus(getFirebaseAuthErrorMessage(error));
+      });
     state.firebaseAuth.onAuthStateChanged((user) => {
       state.cloudUser = user;
       renderCloudControls();
@@ -1124,6 +1132,33 @@ function initFirebase() {
     state.firebaseReady = false;
     setCloudStatus(`Firebase 초기화 실패: ${error.message}`);
   }
+}
+
+function getFirebaseAuthErrorMessage(error) {
+  const code = error?.code || "";
+  const message = error?.message || "";
+
+  if (code.includes("unauthorized-domain")) {
+    return "Firebase 승인 도메인에 현재 주소가 없습니다. Authentication 설정에 wony67.github.io와 localhost를 추가하세요.";
+  }
+
+  if (code.includes("popup-blocked") || code.includes("popup-closed-by-user")) {
+    return "로그인 팝업이 차단되었거나 닫혔습니다. 다시 누르면 리다이렉트 방식으로 시도합니다.";
+  }
+
+  if (code.includes("operation-not-allowed")) {
+    return "Firebase Authentication에서 Google 로그인 제공업체를 활성화해야 합니다.";
+  }
+
+  if (code.includes("network-request-failed")) {
+    return "네트워크 문제로 Firebase 로그인에 실패했습니다.";
+  }
+
+  if (message.includes("disallowed_useragent")) {
+    return "Android 앱 WebView에서는 Google 웹 로그인이 제한될 수 있습니다. 네이티브 Google 로그인 연결이 필요합니다.";
+  }
+
+  return message ? `로그인 실패: ${message}` : "Google 로그인에 실패했습니다.";
 }
 
 function getCloudDocRef() {
@@ -1150,9 +1185,22 @@ async function signInToCloud() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+
+    if (isNativeApp()) {
+      setCloudStatus("Android 앱에서는 Google 웹 로그인이 제한될 수 있습니다. 리다이렉트 로그인을 시도합니다.");
+      await state.firebaseAuth.signInWithRedirect(provider);
+      return;
+    }
+
     await state.firebaseAuth.signInWithPopup(provider);
   } catch (error) {
-    setCloudStatus(`로그인 실패: ${error.message}`);
+    setCloudStatus(getFirebaseAuthErrorMessage(error));
+    if (error?.code?.includes("popup-blocked") || error?.code?.includes("popup-closed-by-user")) {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await state.firebaseAuth.signInWithRedirect(provider);
+    }
   }
 }
 
