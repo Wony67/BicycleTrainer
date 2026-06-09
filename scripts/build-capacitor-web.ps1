@@ -15,6 +15,7 @@ $assets = @(
   "app.js",
   "manifest.json",
   "service-worker.js",
+  "version.json",
   "icon.svg",
   ".nojekyll"
 )

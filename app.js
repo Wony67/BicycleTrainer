@@ -4,6 +4,10 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
+const APP_VERSION_CODE = 2;
+const APP_VERSION_NAME = "1.0.1";
+const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
+const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 
 const state = {
   records: loadRecords(),
@@ -30,6 +34,7 @@ const state = {
   kakaoPlaces: null,
   updateRegistration: null,
   waitingWorker: null,
+  nativeUpdateInfo: null,
   reloadingForUpdate: false,
 };
 
@@ -38,6 +43,8 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 const elements = {
   updateBanner: $("#updateBanner"),
+  updateTitle: $("#updateBanner strong"),
+  updateText: $("#updateBanner span"),
   updateNow: $("#updateNow"),
   installApp: $("#installApp"),
   gpsCheck: $("#gpsCheck"),
@@ -264,10 +271,29 @@ function setMapStatus(message, status = "") {
   elements.mapStatus.classList.toggle("error", status === "error");
 }
 
+function isNativeApp() {
+  return Boolean(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.() === "android");
+}
+
+function setUpdateBannerText(title, message, buttonText) {
+  if (elements.updateTitle) elements.updateTitle.textContent = title;
+  if (elements.updateText) elements.updateText.textContent = message;
+  if (elements.updateNow) elements.updateNow.textContent = buttonText;
+}
+
 function showUpdateBanner(registration) {
   state.updateRegistration = registration;
   state.waitingWorker = registration.waiting;
   if (!state.waitingWorker || !elements.updateBanner) return;
+  setUpdateBannerText("새 버전 사용 가능", "최신 웹앱 파일을 적용하려면 업데이트하세요.", "업데이트 적용");
+  elements.updateBanner.hidden = false;
+}
+
+function showNativeUpdateBanner(updateInfo) {
+  state.nativeUpdateInfo = updateInfo;
+  if (!elements.updateBanner) return;
+  const versionName = updateInfo.versionName ? ` ${updateInfo.versionName}` : "";
+  setUpdateBannerText("앱 업데이트 사용 가능", `새 Android 앱${versionName}을 다운로드할 수 있습니다.`, "APK 다운로드");
   elements.updateBanner.hidden = false;
 }
 
@@ -287,6 +313,7 @@ function watchInstallingWorker(registration) {
 }
 
 function setupAppUpdates(registration) {
+  if (isNativeApp()) return;
   state.updateRegistration = registration;
 
   if (registration.waiting) {
@@ -311,12 +338,33 @@ function setupAppUpdates(registration) {
 }
 
 function applyAppUpdate() {
+  if (isNativeApp()) {
+    const url = state.nativeUpdateInfo?.downloadPageUrl || state.nativeUpdateInfo?.apkUrl || APP_DOWNLOAD_PAGE_URL;
+    window.open(url, "_blank", "noopener");
+    return;
+  }
+
   if (!state.waitingWorker) return;
   hideUpdateBanner();
   state.waitingWorker.postMessage({ type: "SKIP_WAITING" });
 }
 
-if ("serviceWorker" in navigator) {
+async function checkNativeAppUpdate() {
+  if (!isNativeApp()) return;
+
+  try {
+    const response = await fetch(`${APP_VERSION_URL}?t=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const updateInfo = await response.json();
+    if (Number(updateInfo.versionCode) > APP_VERSION_CODE) {
+      showNativeUpdateBanner(updateInfo);
+    }
+  } catch {
+    // Native update checks should never block app startup.
+  }
+}
+
+if ("serviceWorker" in navigator && !isNativeApp()) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (state.reloadingForUpdate) return;
     state.reloadingForUpdate = true;
@@ -1327,7 +1375,7 @@ $$(".tab").forEach((tab) => {
   tab.addEventListener("click", () => switchView(tab.dataset.view));
 });
 
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && !isNativeApp()) {
   navigator.serviceWorker.register("service-worker.js").then(setupAppUpdates).catch(() => {});
 }
 
@@ -1339,4 +1387,5 @@ renderSettings();
 renderProfile();
 updateRideMetrics();
 updateInstallButton();
+checkNativeAppUpdate();
 initializeGpsStatus();
