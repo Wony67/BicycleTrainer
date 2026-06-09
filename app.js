@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 5;
-const APP_VERSION_NAME = "1.0.4";
+const APP_VERSION_CODE = 6;
+const APP_VERSION_NAME = "1.0.5";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIREBASE_CONFIG = {
@@ -317,6 +317,10 @@ function setMapStatus(message, status = "") {
 
 function isNativeApp() {
   return Boolean(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.() === "android");
+}
+
+function getNativeFirebaseAuthPlugin() {
+  return window.Capacitor?.Plugins?.FirebaseAuthentication || null;
 }
 
 function setUpdateBannerText(title, message, buttonText) {
@@ -1184,10 +1188,30 @@ async function signInToCloud() {
   }
 
   if (isNativeApp()) {
-    setCloudStatus(
-      "Android 앱에서는 Google 웹 로그인이 https://localhost로 돌아가며 막힐 수 있습니다. 다음 버전에서 네이티브 Google 로그인을 연결해야 합니다.",
-    );
-    return;
+    try {
+      const nativeAuth = getNativeFirebaseAuthPlugin();
+      if (!nativeAuth?.signInWithGoogle) {
+        setCloudStatus("네이티브 Google 로그인 기능을 찾지 못했습니다. 앱을 업데이트해 주세요.");
+        return;
+      }
+
+      setCloudStatus("Google 계정 연결 중입니다...");
+      const result = await nativeAuth.signInWithGoogle();
+      const idToken = result?.credential?.idToken;
+      const accessToken = result?.credential?.accessToken || null;
+
+      if (!idToken) {
+        throw new Error("Google 인증 토큰을 받지 못했습니다. Firebase Android 앱 설정을 확인해 주세요.");
+      }
+
+      const credential = firebase.auth.GoogleAuthProvider.credential(idToken, accessToken);
+      await state.firebaseAuth.signInWithCredential(credential);
+      setCloudStatus("Google 로그인이 완료되었습니다.");
+      return;
+    } catch (error) {
+      setCloudStatus(getFirebaseAuthErrorMessage(error));
+      return;
+    }
   }
 
   try {
@@ -1207,6 +1231,9 @@ async function signInToCloud() {
 
 async function signOutFromCloud() {
   if (!state.firebaseAuth) return;
+  if (isNativeApp()) {
+    await getNativeFirebaseAuthPlugin()?.signOut?.().catch(() => {});
+  }
   await state.firebaseAuth.signOut();
 }
 

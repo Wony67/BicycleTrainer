@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "771348409840",
+    "project_id": "bicycle-trainer-c027e",
+    "storage_bucket": "bicycle-trainer-c027e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:771348409840:android:00b0d2ee16099b72734135",
+        "android_client_info": {
+          "package_name": "com.wony67.bicycletrainer"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "771348409840-n29bo76s7be9mki8m3hpsbm89rd8ri8t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxz7h4g0OztvqZDqkVQ1sFxW99TjebHS4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "771348409840-n29bo76s7be9mki8m3hpsbm89rd8ri8t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
