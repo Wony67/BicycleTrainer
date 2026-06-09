@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 7;
-const APP_VERSION_NAME = "1.0.6";
+const APP_VERSION_CODE = 8;
+const APP_VERSION_NAME = "1.0.7";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIREBASE_CONFIG = {
@@ -49,6 +49,8 @@ const state = {
   firebaseDb: null,
   cloudUser: null,
   reloadingForUpdate: false,
+  recordDeleteMode: false,
+  selectedRecordIds: new Set(),
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -70,6 +72,10 @@ const elements = {
   recordsList: $("#recordsList"),
   manualRideForm: $("#manualRideForm"),
   clearRecords: $("#clearRecords"),
+  recordDeleteActions: $("#recordDeleteActions"),
+  recordDeleteCount: $("#recordDeleteCount"),
+  deleteSelectedRecords: $("#deleteSelectedRecords"),
+  cancelRecordDelete: $("#cancelRecordDelete"),
   mapLocateMe: $("#mapLocateMe"),
   routeMap: $("#routeMap"),
   mapStatus: $("#mapStatus"),
@@ -108,10 +114,27 @@ const elements = {
 
 function loadRecords() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    return (JSON.parse(localStorage.getItem(STORAGE_KEY)) || []).map(normalizeRecord);
   } catch {
     return [];
   }
+}
+
+function createRecordId(record = {}) {
+  if (window.crypto?.randomUUID) return crypto.randomUUID();
+  const seed = [record.date, record.distanceKm, record.minutes, record.avgSpeed, record.note].filter(Boolean).join("-");
+  return `record-${Date.now()}-${Math.abs(hashString(seed))}`;
+}
+
+function hashString(value) {
+  return [...String(value)].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) | 0, 0);
+}
+
+function normalizeRecord(record) {
+  return {
+    ...record,
+    id: record.id || createRecordId(record),
+  };
 }
 
 function loadProfile() {
@@ -1083,24 +1106,66 @@ function stopRide() {
 
 function addRecord(record) {
   if (!record.distanceKm || !record.minutes) return;
-  state.records = [record, ...state.records].slice(0, 60);
+  state.records = [normalizeRecord(record), ...state.records].slice(0, 60);
+  saveRecords();
+  renderAll();
+}
+
+function updateRecordDeleteControls() {
+  const selectedCount = state.selectedRecordIds.size;
+  if (elements.recordDeleteActions) elements.recordDeleteActions.hidden = !state.recordDeleteMode;
+  if (elements.recordDeleteCount) elements.recordDeleteCount.textContent = `${selectedCount}개 선택됨`;
+  if (elements.deleteSelectedRecords) elements.deleteSelectedRecords.disabled = selectedCount === 0;
+  if (elements.clearRecords) elements.clearRecords.classList.toggle("active", state.recordDeleteMode);
+}
+
+function setRecordDeleteMode(enabled) {
+  state.recordDeleteMode = enabled;
+  state.selectedRecordIds.clear();
+  updateRecordDeleteControls();
+  renderRecords();
+}
+
+function deleteSelectedRecords() {
+  if (!state.selectedRecordIds.size) return;
+  const selectedCount = state.selectedRecordIds.size;
+  const confirmed = window.confirm(`선택한 기록 ${selectedCount}개를 삭제할까요?`);
+  if (!confirmed) return;
+
+  state.records = state.records.filter((record) => !state.selectedRecordIds.has(record.id));
+  state.selectedRecordIds.clear();
+  state.recordDeleteMode = false;
   saveRecords();
   renderAll();
 }
 
 function renderRecords() {
   if (!state.records.length) {
+    state.recordDeleteMode = false;
+    state.selectedRecordIds.clear();
+    updateRecordDeleteControls();
     elements.recordsList.innerHTML = `<div class="record-item"><strong>아직 기록이 없습니다</strong><span>GPS 주행을 시작하거나 실내 주행을 수동으로 저장하세요.</span></div>`;
     return;
   }
 
-  elements.recordsList.innerHTML = state.records
-    .slice(0, 6)
+  updateRecordDeleteControls();
+  const visibleRecords = state.recordDeleteMode ? state.records : state.records.slice(0, 6);
+  elements.recordsList.innerHTML = visibleRecords
     .map(
       (record) => `
-        <article class="record-item">
-          <strong>${record.distanceKm.toFixed(1)} km · ${record.minutes}분 · ${record.avgSpeed.toFixed(1)} km/h</strong>
-          <span>${formatDate(record.date)}${record.note ? ` · ${record.note}` : ""}</span>
+        <article class="record-item ${state.recordDeleteMode ? "selectable" : ""}">
+          ${
+            state.recordDeleteMode
+              ? `<label class="record-select">
+                  <input type="checkbox" data-record-id="${record.id}" ${state.selectedRecordIds.has(record.id) ? "checked" : ""} />
+                  <span class="sr-only">기록 선택</span>
+                </label>`
+              : ""
+          }
+          <div class="record-content">
+            <strong>${record.distanceKm.toFixed(1)} km · ${record.minutes}분 · ${record.avgSpeed.toFixed(1)} km/h</strong>
+            <span>${formatDate(record.date)}${record.note ? ` · ${record.note}` : ""}</span>
+          </div>
         </article>
       `,
     )
@@ -1412,7 +1477,7 @@ async function restoreFromCloud() {
 
     const data = snapshot.data();
     const nextProfile = data.profile || {};
-    const nextRecords = Array.isArray(data.records) ? data.records : [];
+    const nextRecords = Array.isArray(data.records) ? data.records.map(normalizeRecord) : [];
     const nextWeightHistory = Array.isArray(data.weightHistory) ? data.weightHistory : [];
     let restoredApiKeys = null;
     let apiKeyMessage = "";
@@ -1648,10 +1713,27 @@ elements.manualRideForm.addEventListener("submit", (event) => {
   event.currentTarget.reset();
 });
 
-elements.clearRecords.addEventListener("click", () => {
-  state.records = [];
-  saveRecords();
-  renderAll();
+elements.clearRecords?.addEventListener("click", () => {
+  if (!state.records.length) return;
+  setRecordDeleteMode(!state.recordDeleteMode);
+});
+
+elements.cancelRecordDelete?.addEventListener("click", () => {
+  setRecordDeleteMode(false);
+});
+
+elements.deleteSelectedRecords?.addEventListener("click", deleteSelectedRecords);
+
+elements.recordsList?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("input[data-record-id]");
+  if (!checkbox) return;
+
+  if (checkbox.checked) {
+    state.selectedRecordIds.add(checkbox.dataset.recordId);
+  } else {
+    state.selectedRecordIds.delete(checkbox.dataset.recordId);
+  }
+  updateRecordDeleteControls();
 });
 
 elements.mapLocateMe?.addEventListener("click", centerMapOnCurrentLocation);

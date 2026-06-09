@@ -324,6 +324,67 @@ select {
   font-size: 18px;
 }
 
+.icon-button {
+  display: inline-grid;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 8px;
+  background: #e6efeb;
+  color: var(--green-dark);
+}
+
+.icon-button.active {
+  background: #f1e5e0;
+  color: #9f3a21;
+}
+
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.record-delete-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.danger-action,
+.compact-action {
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.danger-action {
+  background: #b93c25;
+  color: #fff;
+}
+
+.danger-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.compact-action {
+  background: #e6efeb;
+  color: var(--green-dark);
+}
+
 .records-list,
 .workout-list {
   display: grid;
@@ -339,6 +400,30 @@ select {
   background: #f5faf7;
 }
 
+.record-item.selectable {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.record-select {
+  display: grid;
+  margin: 0;
+  place-items: center;
+}
+
+.record-select input {
+  width: 22px;
+  min-height: 22px;
+  accent-color: var(--green-dark);
+}
+
+.record-content {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .record-item strong,
 .workout-item strong {
   font-size: 15px;
@@ -349,6 +434,17 @@ select {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .map-panel {
