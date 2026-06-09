@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 6;
-const APP_VERSION_NAME = "1.0.5";
+const APP_VERSION_CODE = 7;
+const APP_VERSION_NAME = "1.0.6";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIREBASE_CONFIG = {
@@ -150,6 +150,134 @@ function getOpenAiKey() {
   return localStorage.getItem(OPENAI_API_KEY) || "";
 }
 
+function getApiKeysForCloudBackup() {
+  const keys = {};
+  const openAiKey = getOpenAiKey();
+  const kakaoMapKey = getKakaoMapKey();
+  if (openAiKey) keys.openAiKey = openAiKey;
+  if (kakaoMapKey) keys.kakaoMapKey = kakaoMapKey;
+  return keys;
+}
+
+function hasCloudApiKeys(keys) {
+  return Boolean(keys && Object.keys(keys).length);
+}
+
+function assertCloudCryptoSupported() {
+  if (!window.crypto?.subtle || !window.crypto?.getRandomValues) {
+    throw new Error("이 환경에서는 API 키 암호화를 사용할 수 없습니다.");
+  }
+}
+
+function bytesToBase64(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(value) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+}
+
+async function deriveCloudApiKey(pin, salt, iterations) {
+  const encoder = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+function requestCloudApiPin(action) {
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.className = "pin-modal-backdrop";
+    overlay.innerHTML = `
+      <div class="pin-modal" role="dialog" aria-modal="true" aria-labelledby="pinModalTitle">
+        <h2 id="pinModalTitle">API 키 ${action} PIN</h2>
+        <p>PIN을 잊으면 암호화된 API 키는 복원할 수 없습니다.</p>
+        <input class="pin-modal-input" type="password" inputmode="numeric" autocomplete="off" placeholder="4자리 이상" />
+        <div class="pin-modal-actions">
+          <button class="ghost pin-cancel" type="button">취소</button>
+          <button class="pin-confirm" type="button">확인</button>
+        </div>
+      </div>
+    `;
+
+    const input = overlay.querySelector(".pin-modal-input");
+    const cancel = overlay.querySelector(".pin-cancel");
+    const confirm = overlay.querySelector(".pin-confirm");
+
+    const close = () => overlay.remove();
+    const submit = () => {
+      const pin = input.value.trim();
+      if (pin.length < 4) {
+        reject(new Error("PIN은 4자리 이상으로 입력해 주세요."));
+        close();
+        return;
+      }
+      resolve(pin);
+      close();
+    };
+
+    cancel.addEventListener("click", () => {
+      resolve(null);
+      close();
+    });
+    confirm.addEventListener("click", submit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submit();
+      if (event.key === "Escape") {
+        resolve(null);
+        close();
+      }
+    });
+
+    document.body.appendChild(overlay);
+    input.focus();
+  });
+}
+
+async function encryptCloudApiKeys(keys, pin) {
+  assertCloudCryptoSupported();
+  const encoder = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const iterations = 150000;
+  const key = await deriveCloudApiKey(pin, salt, iterations);
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(JSON.stringify(keys)));
+
+  return {
+    version: 1,
+    algorithm: "PBKDF2-SHA256/AES-GCM",
+    iterations,
+    salt: bytesToBase64(salt),
+    iv: bytesToBase64(iv),
+    data: bytesToBase64(new Uint8Array(encrypted)),
+    keys: Object.keys(keys),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function decryptCloudApiKeys(encryptedKeys, pin) {
+  assertCloudCryptoSupported();
+  if (!encryptedKeys?.salt || !encryptedKeys?.iv || !encryptedKeys?.data) {
+    throw new Error("클라우드 API 키 백업 형식이 올바르지 않습니다.");
+  }
+
+  const salt = base64ToBytes(encryptedKeys.salt);
+  const iv = base64ToBytes(encryptedKeys.iv);
+  const data = base64ToBytes(encryptedKeys.data);
+  const key = await deriveCloudApiKey(pin, salt, Number(encryptedKeys.iterations) || 150000);
+  try {
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+    return JSON.parse(new TextDecoder().decode(decrypted));
+  } catch {
+    throw new Error("PIN이 맞지 않거나 API 키 백업을 복호화할 수 없습니다.");
+  }
+}
+
 function saveOpenAiKeyFromInput() {
   if (!elements.openAiKey) return;
   const key = elements.openAiKey.value.trim();
@@ -170,8 +298,14 @@ function renderCloudControls() {
   const signedIn = Boolean(state.cloudUser);
   if (elements.firebaseLogin) elements.firebaseLogin.hidden = signedIn;
   if (elements.firebaseLogout) elements.firebaseLogout.hidden = !signedIn;
-  if (elements.cloudBackup) elements.cloudBackup.disabled = !signedIn;
-  if (elements.cloudRestore) elements.cloudRestore.disabled = !signedIn;
+  if (elements.cloudBackup) {
+    elements.cloudBackup.hidden = !signedIn;
+    elements.cloudBackup.disabled = !signedIn;
+  }
+  if (elements.cloudRestore) {
+    elements.cloudRestore.hidden = !signedIn;
+    elements.cloudRestore.disabled = !signedIn;
+  }
 
   if (!state.firebaseReady) {
     setCloudStatus("Firebase SDK를 불러오지 못했습니다. 네트워크 연결을 확인하세요.");
@@ -180,7 +314,7 @@ function renderCloudControls() {
 
   if (signedIn) {
     const label = state.cloudUser.displayName || state.cloudUser.email || "로그인 사용자";
-    setCloudStatus(`${label} 계정으로 연결되었습니다. API 키는 클라우드에 저장하지 않습니다.`);
+    setCloudStatus(`${label} 계정으로 연결되었습니다. API 키가 있으면 백업 시 PIN으로 암호화해 저장합니다.`);
     return;
   }
 
@@ -196,7 +330,7 @@ function renderSettings() {
     [
       openAiKey ? "OpenAI 키 저장됨: AI 코치가 실제 API를 사용합니다." : "OpenAI 키 없음: 로컬 규칙 기반 코치를 사용합니다.",
       key ? "카카오맵 키 저장됨: 경로 탭에서 카카오맵을 우선 사용합니다." : "카카오맵 키 없음: OpenStreetMap을 사용합니다.",
-      "API 키는 이 기기의 브라우저에만 저장됩니다.",
+      "API 키는 클라우드 백업 시 PIN으로 암호화해 저장할 수 있습니다.",
     ].join(" "),
   );
   renderCloudControls();
@@ -1242,8 +1376,24 @@ async function backupToCloud() {
   if (!docRef) return;
 
   try {
-    await docRef.set(getCloudPayload(), { merge: true });
-    setCloudStatus("클라우드 백업을 완료했습니다.");
+    const payload = getCloudPayload();
+    const apiKeys = getApiKeysForCloudBackup();
+    let apiKeyMessage = "";
+
+    if (hasCloudApiKeys(apiKeys)) {
+      const pin = await requestCloudApiPin("백업");
+      if (!pin) {
+        setCloudStatus("PIN 입력이 취소되어 클라우드 백업을 중단했습니다.");
+        return;
+      }
+      payload.encryptedApiKeys = await encryptCloudApiKeys(apiKeys, pin);
+      apiKeyMessage = " API 키도 암호화해 저장했습니다.";
+    } else {
+      payload.encryptedApiKeys = firebase.firestore.FieldValue.delete();
+    }
+
+    await docRef.set(payload, { merge: true });
+    setCloudStatus(`클라우드 백업을 완료했습니다.${apiKeyMessage}`);
   } catch (error) {
     setCloudStatus(`클라우드 백업 실패: ${error.message}`);
   }
@@ -1261,16 +1411,40 @@ async function restoreFromCloud() {
     }
 
     const data = snapshot.data();
-    state.profile = data.profile || {};
-    state.records = Array.isArray(data.records) ? data.records : [];
-    state.weightHistory = Array.isArray(data.weightHistory) ? data.weightHistory : [];
+    const nextProfile = data.profile || {};
+    const nextRecords = Array.isArray(data.records) ? data.records : [];
+    const nextWeightHistory = Array.isArray(data.weightHistory) ? data.weightHistory : [];
+    let restoredApiKeys = null;
+    let apiKeyMessage = "";
+
+    if (data.encryptedApiKeys) {
+      const pin = await requestCloudApiPin("복원");
+      if (!pin) {
+        setCloudStatus("PIN 입력이 취소되어 클라우드 복원을 중단했습니다.");
+        return;
+      }
+
+      restoredApiKeys = await decryptCloudApiKeys(data.encryptedApiKeys, pin);
+      apiKeyMessage = " API 키도 복원했습니다.";
+    }
+
+    state.profile = nextProfile;
+    state.records = nextRecords;
+    state.weightHistory = nextWeightHistory;
+    if (restoredApiKeys?.openAiKey) localStorage.setItem(OPENAI_API_KEY, restoredApiKeys.openAiKey);
+    if (restoredApiKeys?.kakaoMapKey) {
+      localStorage.setItem(KAKAO_MAP_KEY, restoredApiKeys.kakaoMapKey);
+      localStorage.removeItem(LEGACY_NAVER_MAP_KEY);
+    }
+
     saveProfile();
     saveRecords();
     saveWeightHistory();
+    if (apiKeyMessage) resetRouteMap();
     renderAll();
     renderProfile();
     renderSettings();
-    setCloudStatus("클라우드 백업을 이 기기에 복원했습니다.");
+    setCloudStatus(`클라우드 백업을 이 기기에 복원했습니다.${apiKeyMessage}`);
   } catch (error) {
     setCloudStatus(`클라우드 복원 실패: ${error.message}`);
   }

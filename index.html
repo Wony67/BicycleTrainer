@@ -248,7 +248,7 @@
           </form>
 
           <div class="settings-note" id="settingsStatus">
-            API 키는 이 기기의 브라우저에만 저장됩니다.
+            API 키는 이 기기에 저장되며, 클라우드 백업 시 PIN으로 암호화해 저장할 수 있습니다.
           </div>
 
           <section class="timeline" aria-label="클라우드 동기화">
@@ -258,8 +258,8 @@
             <div class="cloud-actions">
               <button class="ghost" id="firebaseLogin" type="button">Google 로그인</button>
               <button class="ghost" id="firebaseLogout" type="button" hidden>로그아웃</button>
-              <button class="ghost" id="cloudBackup" type="button" disabled>클라우드 백업</button>
-              <button class="ghost" id="cloudRestore" type="button" disabled>클라우드 복원</button>
+              <button class="ghost" id="cloudBackup" type="button" disabled hidden>클라우드 백업</button>
+              <button class="ghost" id="cloudRestore" type="button" disabled hidden>클라우드 복원</button>
             </div>
             <div class="settings-note" id="cloudStatus">Firebase 연결 준비 중입니다.</div>
           </section>

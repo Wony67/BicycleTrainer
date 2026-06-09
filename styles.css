@@ -533,6 +533,49 @@ select {
   line-height: 1.45;
 }
 
+.pin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 28, 24, 0.46);
+}
+
+.pin-modal {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 340px);
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.pin-modal h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.pin-modal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pin-modal-input {
+  width: 100%;
+}
+
+.pin-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .analysis-grid {
   margin-top: 8px;
 }
