@@ -4,10 +4,15 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 9;
-const APP_VERSION_NAME = "1.0.8";
+const APP_VERSION_CODE = 10;
+const APP_VERSION_NAME = "1.0.9";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
+const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
+const STATIONARY_RADIUS_KM = 0.1;
+const STATIONARY_LIMIT_MS = 20 * 60 * 1000;
+const MIN_SAVE_DISTANCE_KM = 0.5;
+const MIN_SAVE_AVG_SPEED_KMH = 3;
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDH56iQLm6_ItENRTIwI2-GRT8Pp16e7L4",
   authDomain: "bicycle-trainer-c027e.firebaseapp.com",
@@ -27,6 +32,8 @@ const state = {
   elapsedTimer: null,
   watchId: null,
   lastPosition: null,
+  stationaryAnchor: null,
+  stationarySince: 0,
   distanceKm: 0,
   currentSpeed: 0,
   installPrompt: null,
@@ -37,6 +44,7 @@ const state = {
   mapRoute: null,
   destinationMarker: null,
   destinationLine: null,
+  routeDestination: null,
   mapResizeObserver: null,
   mapProvider: null,
   kakaoMapLoading: false,
@@ -61,6 +69,10 @@ const elements = {
   updateTitle: $("#updateBanner strong"),
   updateText: $("#updateBanner span"),
   updateNow: $("#updateNow"),
+  firstRunSetup: $("#firstRunSetup"),
+  openBatterySettings: $("#openBatterySettings"),
+  dismissFirstRunSetup: $("#dismissFirstRunSetup"),
+  showPermissionGuide: $("#showPermissionGuide"),
   installApp: $("#installApp"),
   gpsCheck: $("#gpsCheck"),
   gpsStatus: $("#gpsStatus"),
@@ -83,6 +95,7 @@ const elements = {
   routeForm: $("#routeForm"),
   routeAdvice: $("#routeAdvice"),
   routeResults: $("#routeResults"),
+  routeNavigate: $("#routeNavigate"),
   destination: $("#destination"),
   routeDistance: $("#routeDistance"),
   coachForm: $("#coachForm"),
@@ -134,7 +147,27 @@ function normalizeRecord(record) {
   return {
     ...record,
     id: record.id || createRecordId(record),
+    path: normalizeRecordPath(record.path || record.routePath || []),
   };
+}
+
+function normalizeRecordPath(path) {
+  if (!Array.isArray(path)) return [];
+  return path
+    .map((point) => {
+      const latitude = Array.isArray(point) ? point[0] : point?.latitude;
+      const longitude = Array.isArray(point) ? point[1] : point?.longitude;
+      if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return null;
+      return [Number(Number(latitude).toFixed(6)), Number(Number(longitude).toFixed(6))];
+    })
+    .filter(Boolean);
+}
+
+function compressRecordPath(path) {
+  const normalized = normalizeRecordPath(path);
+  if (normalized.length <= 800) return normalized;
+  const step = Math.ceil(normalized.length / 800);
+  return normalized.filter((_, index) => index % step === 0 || index === normalized.length - 1);
 }
 
 function loadProfile() {
@@ -349,6 +382,7 @@ function renderSettings() {
   const openAiKey = getOpenAiKey();
   if (elements.kakaoMapKey) elements.kakaoMapKey.value = key;
   if (elements.openAiKey) elements.openAiKey.value = openAiKey;
+  if (elements.showPermissionGuide) elements.showPermissionGuide.hidden = !isNativeApp();
   setSettingsStatus(
     [
       openAiKey ? "OpenAI 키 저장됨: AI 코치가 실제 API를 사용합니다." : "OpenAI 키 없음: 로컬 규칙 기반 코치를 사용합니다.",
@@ -478,6 +512,39 @@ function isNativeApp() {
 
 function getNativeFirebaseAuthPlugin() {
   return window.Capacitor?.Plugins?.FirebaseAuthentication || null;
+}
+
+function getBatterySettingsPlugin() {
+  return window.Capacitor?.Plugins?.BatterySettings || null;
+}
+
+function showFirstRunSetup() {
+  if (elements.firstRunSetup) elements.firstRunSetup.hidden = false;
+}
+
+function hideFirstRunSetup({ remember = false } = {}) {
+  if (remember) localStorage.setItem(FIRST_RUN_SETUP_KEY, "1");
+  if (elements.firstRunSetup) elements.firstRunSetup.hidden = true;
+}
+
+function initializeFirstRunSetup() {
+  if (!isNativeApp()) return;
+  if (localStorage.getItem(FIRST_RUN_SETUP_KEY)) return;
+  showFirstRunSetup();
+}
+
+async function openBatteryOptimizationSettings() {
+  try {
+    const batterySettings = getBatterySettingsPlugin();
+    if (batterySettings?.openBatterySettings) {
+      await batterySettings.openBatterySettings();
+      return;
+    }
+  } catch {
+    // Fall through to the manual guide below.
+  }
+
+  window.alert("Android 설정 > 앱 > Bicycle Trainer > 배터리에서 '제한 없음'을 선택해 주세요.");
 }
 
 function setUpdateBannerText(title, message, buttonText) {
@@ -613,6 +680,29 @@ function updatePosition(position) {
   setGpsStatus("GPS 수신");
   syncMapPosition(latLng, position.coords.accuracy);
   updateRideMetrics();
+  checkStationaryAutoStop(current);
+}
+
+function checkStationaryAutoStop(current) {
+  if (!state.riding) return;
+  const now = Date.now();
+
+  if (!state.stationaryAnchor) {
+    state.stationaryAnchor = current;
+    state.stationarySince = now;
+    return;
+  }
+
+  const distanceFromAnchor = haversineKm(state.stationaryAnchor, current);
+  if (distanceFromAnchor <= STATIONARY_RADIUS_KM) {
+    if (now - state.stationarySince >= STATIONARY_LIMIT_MS) {
+      stopRide({ reason: "stationary" });
+    }
+    return;
+  }
+
+  state.stationaryAnchor = current;
+  state.stationarySince = now;
 }
 
 function initRouteMap() {
@@ -834,6 +924,50 @@ function clearDestinationGuide() {
   state.destinationLine?.setMap?.(null);
   state.destinationMarker = null;
   state.destinationLine = null;
+  state.routeDestination = null;
+  updateRouteNavigateButton();
+}
+
+function formatKakaoRoutePoint(name, latitude, longitude) {
+  return `${encodeURIComponent(name || "위치")},${Number(latitude).toFixed(6)},${Number(longitude).toFixed(6)}`;
+}
+
+function getKakaoNavigationUrl() {
+  const destination = state.routeDestination;
+  if (!destination) return "";
+
+  if (state.lastPosition) {
+    const start = formatKakaoRoutePoint("현재 위치", state.lastPosition.latitude, state.lastPosition.longitude);
+    const end = formatKakaoRoutePoint(destination.name, destination.latitude, destination.longitude);
+    return `https://map.kakao.com/link/by/bicycle/${start}/${end}`;
+  }
+
+  if (destination.id) {
+    return `https://map.kakao.com/link/to/${encodeURIComponent(destination.id)}`;
+  }
+
+  const end = formatKakaoRoutePoint(destination.name, destination.latitude, destination.longitude);
+  return `https://map.kakao.com/link/to/${end}`;
+}
+
+function updateRouteNavigateButton() {
+  if (!elements.routeNavigate) return;
+  const hasDestination = Boolean(state.routeDestination);
+  elements.routeNavigate.hidden = !hasDestination;
+  elements.routeNavigate.disabled = !hasDestination;
+}
+
+function openKakaoNavigation() {
+  const url = getKakaoNavigationUrl();
+  if (!url) {
+    setMapStatus("목적지를 먼저 선택하세요.", "error");
+    return;
+  }
+
+  if (!state.riding) {
+    startRide();
+  }
+  window.open(url, "_blank", "noopener");
 }
 
 function renderRouteResults(results) {
@@ -896,9 +1030,13 @@ function searchDestination(keyword) {
 function selectDestination(place) {
   if (state.mapProvider !== "kakao" || !state.map) return;
   const destination = {
+    id: place.id || "",
+    name: place.place_name || "목적지",
     latitude: Number(place.y),
     longitude: Number(place.x),
   };
+  state.routeDestination = destination;
+  updateRouteNavigateButton();
   const destinationLatLng = new kakao.maps.LatLng(destination.latitude, destination.longitude);
 
   clearDestinationGuide();
@@ -971,9 +1109,11 @@ function resetRouteMap() {
   state.mapRoute = null;
   state.destinationMarker = null;
   state.destinationLine = null;
+  state.routeDestination = null;
   state.mapProvider = null;
   state.kakaoPlaces = null;
   if (elements.routeMap) elements.routeMap.innerHTML = "";
+  updateRouteNavigateButton();
 }
 
 function checkGpsOnce() {
@@ -1046,6 +1186,8 @@ function updateRideMetrics() {
 }
 
 function startRide() {
+  if (state.riding) return;
+
   if (!isSecureGpsContext()) {
     setGpsStatus("HTTPS 필요");
     return;
@@ -1061,6 +1203,8 @@ function startRide() {
   state.distanceKm = 0;
   state.currentSpeed = 0;
   state.lastPosition = null;
+  state.stationaryAnchor = null;
+  state.stationarySince = 0;
   state.routePoints = [];
   if (state.mapRoute) {
     if (state.mapProvider === "kakao") state.mapRoute.setPath([]);
@@ -1079,25 +1223,38 @@ function startRide() {
   );
 }
 
-function stopRide() {
+function stopRide(options = {}) {
   const elapsedMs = Date.now() - state.startedAt;
   const minutes = Math.max(1, Math.round(elapsedMs / 60000));
   const avgSpeed = state.distanceKm / (elapsedMs / 3600000 || 1);
+  const distanceKm = Number(state.distanceKm.toFixed(2));
+  const avgSpeedKmh = Number(avgSpeed.toFixed(1));
+  const shouldSave = !(distanceKm <= MIN_SAVE_DISTANCE_KM && avgSpeedKmh <= MIN_SAVE_AVG_SPEED_KMH);
 
   state.riding = false;
   clearInterval(state.elapsedTimer);
   if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+  state.watchId = null;
 
   elements.rideToggle.textContent = "시작";
-  setGpsStatus("GPS 대기");
+  state.stationaryAnchor = null;
+  state.stationarySince = 0;
 
-  addRecord({
-    date: new Date().toISOString(),
-    distanceKm: Number(state.distanceKm.toFixed(2)),
-    minutes,
-    avgSpeed: Number(avgSpeed.toFixed(1)),
-    note: "GPS 주행",
-  });
+  if (shouldSave) {
+    addRecord({
+      date: new Date().toISOString(),
+      distanceKm,
+      minutes,
+      avgSpeed: avgSpeedKmh,
+      note: options.reason === "stationary" ? "GPS 주행 · 자동 종료" : "GPS 주행",
+      path: compressRecordPath(state.routePoints),
+    });
+    setGpsStatus(options.reason === "stationary" ? "자동 종료" : "GPS 대기");
+  } else {
+    setGpsStatus("기록 제외");
+    setMapStatus("500m 이하이고 평균 3km/h 이하인 주행은 저장하지 않았습니다.", "ready");
+    renderAll();
+  }
 
   state.distanceKm = 0;
   state.currentSpeed = 0;
@@ -1139,6 +1296,41 @@ function deleteSelectedRecords() {
   renderAll();
 }
 
+function drawRecordRoute(record) {
+  if (!record?.path?.length) return;
+  refreshRouteMap();
+  if (!state.map) return;
+
+  clearDestinationGuide();
+  state.routePoints = normalizeRecordPath(record.path);
+  if (!state.routePoints.length) return;
+
+  if (state.mapRoute) {
+    if (state.mapProvider === "kakao") {
+      state.mapRoute.setPath(state.routePoints.map(toProviderLatLng));
+      const bounds = new kakao.maps.LatLngBounds();
+      state.routePoints.forEach((point) => bounds.extend(toProviderLatLng(point)));
+      state.map.setBounds(bounds);
+    } else {
+      state.mapRoute.setLatLngs(state.routePoints);
+      state.map.fitBounds(state.routePoints, { padding: [24, 24] });
+    }
+  }
+
+  const routeDate = formatDate(record.date);
+  setMapStatus(`${routeDate} 주행 경로를 표시했습니다.`, "ready");
+  invalidateMapSize();
+}
+
+function showRecordRoute(recordId) {
+  const record = state.records.find((item) => item.id === recordId);
+  if (!record?.path?.length) return;
+  switchView("route");
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => drawRecordRoute(record));
+  });
+}
+
 function renderRecords() {
   if (!state.records.length) {
     state.recordDeleteMode = false;
@@ -1165,6 +1357,11 @@ function renderRecords() {
           <div class="record-content">
             <strong>${record.distanceKm.toFixed(1)} km · ${record.minutes}분 · ${record.avgSpeed.toFixed(1)} km/h</strong>
             <span>${formatDate(record.date)}${record.note ? ` · ${record.note}` : ""}</span>
+            ${
+              !state.recordDeleteMode && record.path?.length > 1
+                ? `<button class="record-map-button" type="button" data-route-record-id="${record.id}">지도 보기</button>`
+                : ""
+            }
           </div>
         </article>
       `,
@@ -1689,6 +1886,9 @@ elements.installApp?.addEventListener("click", async () => {
 });
 
 elements.updateNow?.addEventListener("click", applyAppUpdate);
+elements.openBatterySettings?.addEventListener("click", openBatteryOptimizationSettings);
+elements.showPermissionGuide?.addEventListener("click", showFirstRunSetup);
+elements.dismissFirstRunSetup?.addEventListener("click", () => hideFirstRunSetup({ remember: true }));
 
 elements.rideToggle.addEventListener("click", () => {
   if (state.riding) stopRide();
@@ -1736,7 +1936,14 @@ elements.recordsList?.addEventListener("change", (event) => {
   updateRecordDeleteControls();
 });
 
+elements.recordsList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-route-record-id]");
+  if (!button) return;
+  showRecordRoute(button.dataset.routeRecordId);
+});
+
 elements.mapLocateMe?.addEventListener("click", centerMapOnCurrentLocation);
+elements.routeNavigate?.addEventListener("click", openKakaoNavigation);
 
 elements.profileForm?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1866,3 +2073,4 @@ updateRideMetrics();
 updateInstallButton();
 checkNativeAppUpdate();
 initializeGpsStatus();
+initializeFirstRunSetup();

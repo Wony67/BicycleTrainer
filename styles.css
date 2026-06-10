@@ -156,6 +156,51 @@ h2 {
   font-weight: 800;
 }
 
+.setup-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 28, 24, 0.46);
+}
+
+.setup-modal-backdrop[hidden] {
+  display: none;
+}
+
+.setup-modal {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 360px);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.setup-modal h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.setup-modal p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.setup-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.setup-actions button {
+  min-height: 44px;
+}
+
 .view {
   display: none;
 }
@@ -428,6 +473,18 @@ select {
   min-width: 0;
 }
 
+.record-map-button {
+  justify-self: start;
+  min-height: 34px;
+  margin-top: 4px;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #e6efeb;
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .record-item strong,
 .workout-item strong {
   font-size: 15px;
@@ -602,6 +659,20 @@ select {
   margin-top: 12px;
 }
 
+.route-navigate-button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: var(--green);
+  color: #fff;
+  font-weight: 800;
+}
+
+.route-navigate-button[hidden] {
+  display: none;
+}
+
 .route-result {
   display: grid;
   gap: 4px;
@@ -631,6 +702,11 @@ select {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.settings-wide-action {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .pin-modal-backdrop {
