@@ -171,6 +171,7 @@ h2 {
 }
 
 .setup-modal {
+  position: relative;
   display: grid;
   gap: 12px;
   width: min(100%, 360px);
@@ -179,6 +180,27 @@ h2 {
   border-radius: 8px;
   background: #fff;
   box-shadow: var(--shadow);
+}
+
+.setup-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.setup-modal-close:hover {
+  background: #eef5f1;
+  color: var(--ink);
 }
 
 .setup-modal h2 {
@@ -669,8 +691,10 @@ select {
   font-weight: 800;
 }
 
-.route-navigate-button[hidden] {
-  display: none;
+.route-navigate-button:disabled {
+  cursor: not-allowed;
+  background: #e6efeb;
+  color: var(--muted);
 }
 
 .route-result {

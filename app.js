@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 10;
-const APP_VERSION_NAME = "1.0.9";
+const APP_VERSION_CODE = 11;
+const APP_VERSION_NAME = "1.0.10";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -70,6 +70,7 @@ const elements = {
   updateText: $("#updateBanner span"),
   updateNow: $("#updateNow"),
   firstRunSetup: $("#firstRunSetup"),
+  closeFirstRunSetup: $("#closeFirstRunSetup"),
   openBatterySettings: $("#openBatterySettings"),
   dismissFirstRunSetup: $("#dismissFirstRunSetup"),
   showPermissionGuide: $("#showPermissionGuide"),
@@ -120,6 +121,7 @@ const elements = {
   firebaseLogout: $("#firebaseLogout"),
   cloudBackup: $("#cloudBackup"),
   cloudRestore: $("#cloudRestore"),
+  seedSampleRecords: $("#seedSampleRecords"),
   cloudStatus: $("#cloudStatus"),
   clearKakaoKey: $("#clearKakaoKey"),
   clearOpenAiKey: $("#clearOpenAiKey"),
@@ -362,6 +364,10 @@ function renderCloudControls() {
     elements.cloudRestore.hidden = !signedIn;
     elements.cloudRestore.disabled = !signedIn;
   }
+  if (elements.seedSampleRecords) {
+    elements.seedSampleRecords.hidden = !signedIn;
+    elements.seedSampleRecords.disabled = !signedIn;
+  }
 
   if (!state.firebaseReady) {
     setCloudStatus("Firebase SDK를 불러오지 못했습니다. 네트워크 연결을 확인하세요.");
@@ -527,9 +533,26 @@ function hideFirstRunSetup({ remember = false } = {}) {
   if (elements.firstRunSetup) elements.firstRunSetup.hidden = true;
 }
 
-function initializeFirstRunSetup() {
+async function checkBatteryOptimizationStatus({ rememberIfDone = false } = {}) {
+  const batterySettings = getBatterySettingsPlugin();
+  if (!batterySettings?.isIgnoringBatteryOptimizations) return null;
+
+  try {
+    const result = await batterySettings.isIgnoringBatteryOptimizations();
+    const isDone = Boolean(result?.ignoring);
+    if (isDone && rememberIfDone) hideFirstRunSetup({ remember: true });
+    return isDone;
+  } catch {
+    return null;
+  }
+}
+
+async function initializeFirstRunSetup() {
   if (!isNativeApp()) return;
   if (localStorage.getItem(FIRST_RUN_SETUP_KEY)) return;
+
+  const isDone = await checkBatteryOptimizationStatus({ rememberIfDone: true });
+  if (isDone) return;
   showFirstRunSetup();
 }
 
@@ -538,6 +561,9 @@ async function openBatteryOptimizationSettings() {
     const batterySettings = getBatterySettingsPlugin();
     if (batterySettings?.openBatterySettings) {
       await batterySettings.openBatterySettings();
+      setTimeout(() => {
+        checkBatteryOptimizationStatus({ rememberIfDone: true });
+      }, 1000);
       return;
     }
   } catch {
@@ -545,6 +571,12 @@ async function openBatteryOptimizationSettings() {
   }
 
   window.alert("Android 설정 > 앱 > Bicycle Trainer > 배터리에서 '제한 없음'을 선택해 주세요.");
+}
+
+function handleBatterySettingsReturn() {
+  if (!isNativeApp()) return;
+  if (document.visibilityState && document.visibilityState !== "visible") return;
+  checkBatteryOptimizationStatus({ rememberIfDone: true });
 }
 
 function setUpdateBannerText(title, message, buttonText) {
@@ -953,8 +985,8 @@ function getKakaoNavigationUrl() {
 function updateRouteNavigateButton() {
   if (!elements.routeNavigate) return;
   const hasDestination = Boolean(state.routeDestination);
-  elements.routeNavigate.hidden = !hasDestination;
   elements.routeNavigate.disabled = !hasDestination;
+  elements.routeNavigate.textContent = hasDestination ? "카카오맵 길찾기" : "목적지 선택 후 길찾기";
 }
 
 function openKakaoNavigation() {
@@ -989,6 +1021,7 @@ function renderRouteResults(results) {
 
 function searchDestination(keyword) {
   if (!keyword) return;
+  clearDestinationGuide();
   if (!getKakaoMapKey()) {
     updateRouteAdvice(keyword, Number(elements.routeDistance?.value) || 0);
     setMapStatus("카카오맵 키를 설정하면 목적지 검색을 사용할 수 있습니다.", "error");
@@ -1266,6 +1299,102 @@ function addRecord(record) {
   state.records = [normalizeRecord(record), ...state.records].slice(0, 60);
   saveRecords();
   renderAll();
+}
+
+function getSampleRouteRecords() {
+  const now = Date.now();
+  return [
+    {
+      id: "sample-route-anyangcheon-short",
+      date: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      distanceKm: 4.8,
+      minutes: 22,
+      avgSpeed: 13.1,
+      note: "테스트 주행 - 안양천 짧은 코스",
+      path: [
+        [37.475527, 126.88729],
+        [37.47615, 126.89042],
+        [37.47728, 126.89408],
+        [37.47874, 126.89831],
+        [37.48016, 126.90243],
+        [37.48203, 126.90624],
+        [37.48418, 126.90977],
+        [37.48642, 126.91292],
+        [37.48838, 126.91551],
+      ],
+    },
+    {
+      id: "sample-route-gasan-loop",
+      date: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      distanceKm: 6.3,
+      minutes: 29,
+      avgSpeed: 13.0,
+      note: "테스트 주행 - 가산 순환 코스",
+      path: [
+        [37.475527, 126.88729],
+        [37.47816, 126.88792],
+        [37.48142, 126.88964],
+        [37.48331, 126.89318],
+        [37.48248, 126.89745],
+        [37.47984, 126.90062],
+        [37.47668, 126.89941],
+        [37.47462, 126.89578],
+        [37.47389, 126.89112],
+        [37.475527, 126.88729],
+      ],
+    },
+    {
+      id: "sample-route-hangang-bound",
+      date: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      distanceKm: 9.2,
+      minutes: 41,
+      avgSpeed: 13.5,
+      note: "테스트 주행 - 한강 방향 코스",
+      path: [
+        [37.475527, 126.88729],
+        [37.47918, 126.88931],
+        [37.48354, 126.89182],
+        [37.48797, 126.89536],
+        [37.49244, 126.89958],
+        [37.49662, 126.90417],
+        [37.50073, 126.90945],
+        [37.50518, 126.91512],
+        [37.50964, 126.92073],
+        [37.51422, 126.92658],
+      ],
+    },
+  ].map(normalizeRecord);
+}
+
+async function seedSampleRouteRecords() {
+  const sampleRecords = getSampleRouteRecords();
+  const sampleIds = new Set(sampleRecords.map((record) => record.id));
+  state.records = [...sampleRecords, ...state.records.filter((record) => !sampleIds.has(record.id))].slice(0, 60);
+  saveRecords();
+  renderAll();
+
+  const docRef = getCloudDocRef();
+  if (!docRef) {
+    setCloudStatus("테스트 주행기록 3개를 이 기기에 추가했습니다.");
+    return;
+  }
+
+  try {
+    await docRef.set(
+      {
+        versionCode: APP_VERSION_CODE,
+        versionName: APP_VERSION_NAME,
+        records: state.records,
+        profile: state.profile,
+        weightHistory: state.weightHistory,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    setCloudStatus("테스트 주행기록 3개를 현재 로그인 계정에 추가했습니다.");
+  } catch (error) {
+    setCloudStatus(`테스트 기록은 기기에 추가했지만 클라우드 저장에 실패했습니다: ${error.message}`);
+  }
 }
 
 function updateRecordDeleteControls() {
@@ -1874,6 +2003,10 @@ window.addEventListener("appinstalled", () => {
   setGpsStatus("앱 설치됨");
 });
 
+window.addEventListener("focus", handleBatterySettingsReturn);
+
+document.addEventListener("visibilitychange", handleBatterySettingsReturn);
+
 elements.installApp?.addEventListener("click", async () => {
   if (!state.installPrompt) {
     showInstallGuide();
@@ -1886,6 +2019,7 @@ elements.installApp?.addEventListener("click", async () => {
 });
 
 elements.updateNow?.addEventListener("click", applyAppUpdate);
+elements.closeFirstRunSetup?.addEventListener("click", () => hideFirstRunSetup());
 elements.openBatterySettings?.addEventListener("click", openBatteryOptimizationSettings);
 elements.showPermissionGuide?.addEventListener("click", showFirstRunSetup);
 elements.dismissFirstRunSetup?.addEventListener("click", () => hideFirstRunSetup({ remember: true }));
@@ -2009,6 +2143,7 @@ elements.firebaseLogin?.addEventListener("click", signInToCloud);
 elements.firebaseLogout?.addEventListener("click", signOutFromCloud);
 elements.cloudBackup?.addEventListener("click", backupToCloud);
 elements.cloudRestore?.addEventListener("click", restoreFromCloud);
+elements.seedSampleRecords?.addEventListener("click", seedSampleRouteRecords);
 
 elements.routeForm.addEventListener("submit", (event) => {
   event.preventDefault();
