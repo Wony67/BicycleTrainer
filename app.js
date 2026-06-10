@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 11;
-const APP_VERSION_NAME = "1.0.10";
+const APP_VERSION_CODE = 12;
+const APP_VERSION_NAME = "1.0.11";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -42,6 +42,8 @@ const state = {
   mapMarker: null,
   mapAccuracy: null,
   mapRoute: null,
+  recordStartMarker: null,
+  recordEndMarker: null,
   destinationMarker: null,
   destinationLine: null,
   routeDestination: null,
@@ -841,6 +843,69 @@ function createLocationIcon() {
   });
 }
 
+function createRouteEndpointIcon(type) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="route-endpoint-marker ${type}" aria-hidden="true">${type === "start" ? "출" : "도"}</div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
+}
+
+function createKakaoRouteEndpointOverlay(type, latLng) {
+  const content = document.createElement("div");
+  content.className = `route-endpoint-marker ${type}`;
+  content.textContent = type === "start" ? "출" : "도";
+
+  return new kakao.maps.CustomOverlay({
+    content,
+    position: toProviderLatLng(latLng),
+    xAnchor: 0.5,
+    yAnchor: 0.5,
+    zIndex: 4,
+  });
+}
+
+function clearRecordEndpointMarkers() {
+  [state.recordStartMarker, state.recordEndMarker].forEach((marker) => {
+    if (state.mapProvider === "kakao") marker?.setMap?.(null);
+    else marker?.remove?.();
+  });
+  state.recordStartMarker = null;
+  state.recordEndMarker = null;
+}
+
+function setRecordEndpointMarkers(path) {
+  clearRecordEndpointMarkers();
+  if (!state.map || !path?.length) return;
+
+  const start = path[0];
+  const end = path[path.length - 1];
+  if (!start || !end) return;
+
+  if (state.mapProvider === "kakao") {
+    state.recordStartMarker = createKakaoRouteEndpointOverlay("start", start);
+    state.recordEndMarker = createKakaoRouteEndpointOverlay("end", end);
+    state.recordStartMarker.setMap(state.map);
+    state.recordEndMarker.setMap(state.map);
+    return;
+  }
+
+  state.recordStartMarker = L.marker(start, {
+    icon: createRouteEndpointIcon("start"),
+    keyboard: false,
+    title: "출발지",
+    zIndexOffset: 900,
+  }).addTo(state.map).bindPopup("출발지");
+
+  state.recordEndMarker = L.marker(end, {
+    icon: createRouteEndpointIcon("end"),
+    keyboard: false,
+    title: "도착지",
+    zIndexOffset: 900,
+  }).addTo(state.map).bindPopup("도착지");
+}
+
 function toProviderLatLng(latLng) {
   if (state.mapProvider === "kakao") return new kakao.maps.LatLng(latLng[0], latLng[1]);
   return latLng;
@@ -952,6 +1017,7 @@ function centerMapOnCurrentLocation() {
 }
 
 function clearDestinationGuide() {
+  clearRecordEndpointMarkers();
   state.destinationMarker?.setMap?.(null);
   state.destinationLine?.setMap?.(null);
   state.destinationMarker = null;
@@ -1131,15 +1197,23 @@ function resetRouteMap() {
   }
 
   if (state.mapProvider === "kakao") {
-    [state.mapMarker, state.mapAccuracy, state.mapRoute, state.destinationMarker, state.destinationLine].forEach((item) =>
-      item?.setMap?.(null),
-    );
+    [
+      state.mapMarker,
+      state.mapAccuracy,
+      state.mapRoute,
+      state.recordStartMarker,
+      state.recordEndMarker,
+      state.destinationMarker,
+      state.destinationLine,
+    ].forEach((item) => item?.setMap?.(null));
   }
 
   state.map = null;
   state.mapMarker = null;
   state.mapAccuracy = null;
   state.mapRoute = null;
+  state.recordStartMarker = null;
+  state.recordEndMarker = null;
   state.destinationMarker = null;
   state.destinationLine = null;
   state.routeDestination = null;
@@ -1384,7 +1458,7 @@ async function seedSampleRouteRecords() {
       {
         versionCode: APP_VERSION_CODE,
         versionName: APP_VERSION_NAME,
-        records: state.records,
+        records: getCloudRecords(),
         profile: state.profile,
         weightHistory: state.weightHistory,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1445,6 +1519,7 @@ function drawRecordRoute(record) {
       state.map.fitBounds(state.routePoints, { padding: [24, 24] });
     }
   }
+  setRecordEndpointMarkers(state.routePoints);
 
   const routeDate = formatDate(record.date);
   setMapStatus(`${routeDate} 주행 경로를 표시했습니다.`, "ready");
@@ -1695,12 +1770,24 @@ function getCloudDocRef() {
   return state.firebaseDb.collection("users").doc(state.cloudUser.uid).collection("appState").doc("current");
 }
 
+function serializeRecordForCloud(record) {
+  const normalized = normalizeRecord(record);
+  return {
+    ...normalized,
+    path: normalized.path.map(([latitude, longitude]) => ({ latitude, longitude })),
+  };
+}
+
+function getCloudRecords() {
+  return state.records.map(serializeRecordForCloud);
+}
+
 function getCloudPayload() {
   return {
     versionCode: APP_VERSION_CODE,
     versionName: APP_VERSION_NAME,
     profile: state.profile,
-    records: state.records,
+    records: getCloudRecords(),
     weightHistory: state.weightHistory,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
