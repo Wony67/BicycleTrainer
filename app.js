@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 13;
-const APP_VERSION_NAME = "1.0.12";
+const APP_VERSION_CODE = 14;
+const APP_VERSION_NAME = "1.0.13";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -386,12 +386,12 @@ function setCloudStatus(message) {
 }
 
 function isWonyUser(user = state.cloudUser) {
-  return String(user?.displayName || "").trim().toLowerCase() === "wony";
+  return String(user?.email || "").trim().toLowerCase() === "wony607@gmail.com";
 }
 
 function renderCloudControls() {
   const signedIn = Boolean(state.cloudUser);
-  const canViewCoachJson = signedIn && isWonyUser();
+  const canUseWonyTools = signedIn && isWonyUser();
   if (elements.firebaseLogin) elements.firebaseLogin.hidden = signedIn;
   if (elements.firebaseLogout) elements.firebaseLogout.hidden = !signedIn;
   if (elements.cloudBackup) {
@@ -403,12 +403,12 @@ function renderCloudControls() {
     elements.cloudRestore.disabled = !signedIn;
   }
   if (elements.seedSampleRecords) {
-    elements.seedSampleRecords.hidden = !signedIn;
-    elements.seedSampleRecords.disabled = !signedIn;
+    elements.seedSampleRecords.hidden = !canUseWonyTools;
+    elements.seedSampleRecords.disabled = !canUseWonyTools;
   }
   if (elements.showCoachJson) {
-    elements.showCoachJson.hidden = !canViewCoachJson;
-    elements.showCoachJson.disabled = !canViewCoachJson;
+    elements.showCoachJson.hidden = !canUseWonyTools;
+    elements.showCoachJson.disabled = !canUseWonyTools;
   }
 
   if (!state.firebaseReady) {
