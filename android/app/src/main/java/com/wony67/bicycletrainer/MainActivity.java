@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BatterySettingsPlugin.class);
+        registerPlugin(BackgroundRidePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

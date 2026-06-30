@@ -38,6 +38,7 @@ const state = {
   currentSpeed: 0,
   installPrompt: null,
   routePoints: [],
+  nativeBackgroundRide: false,
   map: null,
   mapMarker: null,
   mapAccuracy: null,
@@ -124,6 +125,7 @@ const elements = {
   cloudBackup: $("#cloudBackup"),
   cloudRestore: $("#cloudRestore"),
   seedSampleRecords: $("#seedSampleRecords"),
+  showCoachJson: $("#showCoachJson"),
   cloudStatus: $("#cloudStatus"),
   clearKakaoKey: $("#clearKakaoKey"),
   clearOpenAiKey: $("#clearOpenAiKey"),
@@ -299,6 +301,35 @@ function requestCloudApiPin(action) {
   });
 }
 
+function showJsonModal(title, payload) {
+  const overlay = document.createElement("div");
+  overlay.className = "json-modal-backdrop";
+  const jsonText = JSON.stringify(payload, null, 2);
+  overlay.innerHTML = `
+    <div class="json-modal" role="dialog" aria-modal="true" aria-labelledby="jsonModalTitle">
+      <h2 id="jsonModalTitle">${title}</h2>
+      <textarea class="json-modal-output" readonly spellcheck="false"></textarea>
+      <div class="json-modal-actions">
+        <button class="json-copy" type="button">복사</button>
+        <button class="ghost json-close" type="button">닫기</button>
+      </div>
+    </div>
+  `;
+
+  const textarea = overlay.querySelector(".json-modal-output");
+  const close = () => overlay.remove();
+  textarea.value = jsonText;
+  overlay.querySelector(".json-close").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector(".json-copy").addEventListener("click", async () => {
+    await navigator.clipboard?.writeText(jsonText).catch(() => {});
+    textarea.select();
+  });
+  document.body.appendChild(overlay);
+}
+
 async function encryptCloudApiKeys(keys, pin) {
   assertCloudCryptoSupported();
   const encoder = new TextEncoder();
@@ -354,8 +385,13 @@ function setCloudStatus(message) {
   if (elements.cloudStatus) elements.cloudStatus.textContent = message;
 }
 
+function isWonyUser(user = state.cloudUser) {
+  return String(user?.displayName || "").trim().toLowerCase() === "wony";
+}
+
 function renderCloudControls() {
   const signedIn = Boolean(state.cloudUser);
+  const canViewCoachJson = signedIn && isWonyUser();
   if (elements.firebaseLogin) elements.firebaseLogin.hidden = signedIn;
   if (elements.firebaseLogout) elements.firebaseLogout.hidden = !signedIn;
   if (elements.cloudBackup) {
@@ -369,6 +405,10 @@ function renderCloudControls() {
   if (elements.seedSampleRecords) {
     elements.seedSampleRecords.hidden = !signedIn;
     elements.seedSampleRecords.disabled = !signedIn;
+  }
+  if (elements.showCoachJson) {
+    elements.showCoachJson.hidden = !canViewCoachJson;
+    elements.showCoachJson.disabled = !canViewCoachJson;
   }
 
   if (!state.firebaseReady) {
@@ -526,6 +566,10 @@ function getBatterySettingsPlugin() {
   return window.Capacitor?.Plugins?.BatterySettings || null;
 }
 
+function getBackgroundRidePlugin() {
+  return window.Capacitor?.Plugins?.BackgroundRide || null;
+}
+
 function showFirstRunSetup() {
   if (elements.firstRunSetup) elements.firstRunSetup.hidden = false;
 }
@@ -579,6 +623,11 @@ function handleBatterySettingsReturn() {
   if (!isNativeApp()) return;
   if (document.visibilityState && document.visibilityState !== "visible") return;
   checkBatteryOptimizationStatus({ rememberIfDone: true });
+}
+
+function handleNativeAppReturn() {
+  handleBatterySettingsReturn();
+  syncNativeBackgroundRideStatus();
 }
 
 function setUpdateBannerText(title, message, buttonText) {
@@ -1055,7 +1104,7 @@ function updateRouteNavigateButton() {
   elements.routeNavigate.textContent = hasDestination ? "카카오맵 길찾기" : "목적지 선택 후 길찾기";
 }
 
-function openKakaoNavigation() {
+async function openKakaoNavigation() {
   const url = getKakaoNavigationUrl();
   if (!url) {
     setMapStatus("목적지를 먼저 선택하세요.", "error");
@@ -1063,7 +1112,7 @@ function openKakaoNavigation() {
   }
 
   if (!state.riding) {
-    startRide();
+    await startRide();
   }
   window.open(url, "_blank", "noopener");
 }
@@ -1283,6 +1332,77 @@ function initializeGpsStatus() {
     .catch(() => setGpsStatus("GPS 준비"));
 }
 
+function normalizeBackgroundRideSnapshot(snapshot) {
+  if (!snapshot) return null;
+  const path = normalizeRecordPath(snapshot.points || snapshot.path || []);
+  const distanceKm = Number(snapshot.distanceKm);
+  const startedAt = Number(snapshot.startedAt);
+  const currentSpeed = Number(snapshot.currentSpeed);
+  return {
+    running: Boolean(snapshot.running),
+    autoStopped: Boolean(snapshot.autoStopped),
+    stopReason: snapshot.stopReason || "",
+    startedAt: Number.isFinite(startedAt) && startedAt > 0 ? startedAt : 0,
+    distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
+    currentSpeed: Number.isFinite(currentSpeed) ? currentSpeed : 0,
+    path,
+  };
+}
+
+async function startNativeBackgroundRide() {
+  if (!isNativeApp()) return null;
+  const backgroundRide = getBackgroundRidePlugin();
+  if (!backgroundRide?.startTracking) return null;
+
+  try {
+    const result = await backgroundRide.startTracking({ startedAt: state.startedAt });
+    state.nativeBackgroundRide = Boolean(result?.started);
+    if (state.nativeBackgroundRide) setMapStatus("백그라운드 주행기록이 켜졌습니다.", "ready");
+    return result;
+  } catch (error) {
+    state.nativeBackgroundRide = false;
+    setMapStatus(`백그라운드 기록을 시작하지 못했습니다: ${error.message || error}`, "error");
+    return null;
+  }
+}
+
+async function stopNativeBackgroundRide() {
+  if (!isNativeApp()) return null;
+  const backgroundRide = getBackgroundRidePlugin();
+  if (!backgroundRide?.stopTracking) return null;
+
+  try {
+    const snapshot = await backgroundRide.stopTracking();
+    state.nativeBackgroundRide = false;
+    return normalizeBackgroundRideSnapshot(snapshot);
+  } catch {
+    state.nativeBackgroundRide = false;
+    return null;
+  }
+}
+
+async function syncNativeBackgroundRideStatus() {
+  if (!state.riding || !isNativeApp()) return;
+  const backgroundRide = getBackgroundRidePlugin();
+  if (!backgroundRide?.getTrackingStatus) return;
+
+  try {
+    const snapshot = normalizeBackgroundRideSnapshot(await backgroundRide.getTrackingStatus());
+    if (!snapshot) return;
+
+    if (snapshot.distanceKm > state.distanceKm) state.distanceKm = snapshot.distanceKm;
+    if (snapshot.currentSpeed >= 0) state.currentSpeed = snapshot.currentSpeed;
+    if (snapshot.path.length > state.routePoints.length) state.routePoints = snapshot.path;
+    updateRideMetrics();
+
+    if (snapshot.autoStopped || (!snapshot.running && snapshot.path.length)) {
+      stopRide({ reason: snapshot.stopReason || "stationary" });
+    }
+  } catch {
+    // Foreground Web GPS remains active even when native status polling fails.
+  }
+}
+
 function updateRideMetrics() {
   const elapsedMs = state.riding ? Date.now() - state.startedAt : 0;
   const elapsedHours = elapsedMs / 3600000;
@@ -1292,7 +1412,7 @@ function updateRideMetrics() {
   elements.avgSpeed.textContent = elapsedHours > 0 ? (state.distanceKm / elapsedHours).toFixed(1) : "0.0";
 }
 
-function startRide() {
+async function startRide() {
   if (state.riding) return;
 
   if (!isSecureGpsContext()) {
@@ -1321,6 +1441,8 @@ function startRide() {
   setGpsStatus("GPS 연결 중");
   state.elapsedTimer = setInterval(updateRideMetrics, 1000);
 
+  startNativeBackgroundRide();
+
   state.watchId = navigator.geolocation.watchPosition(
     updatePosition,
     (error) => {
@@ -1330,11 +1452,15 @@ function startRide() {
   );
 }
 
-function stopRide(options = {}) {
-  const elapsedMs = Date.now() - state.startedAt;
+async function stopRide(options = {}) {
+  const nativeSnapshot = await stopNativeBackgroundRide();
+  const rideStartedAt = nativeSnapshot?.startedAt || state.startedAt;
+  const ridePath = nativeSnapshot?.path?.length ? nativeSnapshot.path : state.routePoints;
+  const rideDistanceKm = nativeSnapshot?.distanceKm > state.distanceKm ? nativeSnapshot.distanceKm : state.distanceKm;
+  const elapsedMs = Date.now() - rideStartedAt;
   const minutes = Math.max(1, Math.round(elapsedMs / 60000));
-  const avgSpeed = state.distanceKm / (elapsedMs / 3600000 || 1);
-  const distanceKm = Number(state.distanceKm.toFixed(2));
+  const avgSpeed = rideDistanceKm / (elapsedMs / 3600000 || 1);
+  const distanceKm = Number(rideDistanceKm.toFixed(2));
   const avgSpeedKmh = Number(avgSpeed.toFixed(1));
   const shouldSave = !(distanceKm <= MIN_SAVE_DISTANCE_KM && avgSpeedKmh <= MIN_SAVE_AVG_SPEED_KMH);
 
@@ -1354,7 +1480,7 @@ function stopRide(options = {}) {
       minutes,
       avgSpeed: avgSpeedKmh,
       note: options.reason === "stationary" ? "GPS 주행 · 자동 종료" : "GPS 주행",
-      path: compressRecordPath(state.routePoints),
+      path: compressRecordPath(ridePath),
     });
     setGpsStatus(options.reason === "stationary" ? "자동 종료" : "GPS 대기");
   } else {
@@ -1469,6 +1595,33 @@ async function seedSampleRouteRecords() {
   } catch (error) {
     setCloudStatus(`테스트 기록은 기기에 추가했지만 클라우드 저장에 실패했습니다: ${error.message}`);
   }
+}
+
+function getCoachDebugPayload() {
+  const condition = elements.condition?.value || "normal";
+  const goal = elements.goal?.value || state.profile.goal || "endurance";
+  const coachEvaluation = evaluateCoachPattern(goal);
+  return {
+    generatedAt: new Date().toISOString(),
+    viewer: {
+      displayName: state.cloudUser?.displayName || "",
+      email: state.cloudUser?.email || "",
+      uid: state.cloudUser?.uid || "",
+    },
+    condition,
+    goal,
+    recentRecords: state.records.slice(0, 10),
+    coachContext: buildCoachContext(condition, goal, null),
+    coachEvaluation,
+  };
+}
+
+function showCoachJson() {
+  if (!isWonyUser()) {
+    setCloudStatus("Wony 계정에서만 코칭 JSON을 볼 수 있습니다.");
+    return;
+  }
+  showJsonModal("코칭 JSON", getCoachDebugPayload());
 }
 
 function updateRecordDeleteControls() {
@@ -1597,7 +1750,7 @@ function renderAnalysis() {
     : `<div class="record-item" style="grid-column: 1 / -1"><strong>분석 대기 중</strong><span>주행 기록이 쌓이면 그래프가 표시됩니다.</span></div>`;
 }
 
-function renderCoach() {
+function renderCoachLegacy() {
   const last = state.records[0];
   const totalDistance = state.records.reduce((sum, record) => sum + record.distanceKm, 0);
   const profileName = state.profile.name ? `${state.profile.name}님, ` : "";
@@ -1625,13 +1778,13 @@ function renderCoach() {
   elements.coachMessage.textContent = message;
 }
 
-function renderWorkout(items) {
+function renderWorkoutLegacy(items) {
   elements.workoutPlan.innerHTML = items
     .map((item, index) => `<article class="workout-item"><strong>${index + 1}. ${item}</strong><span>컨디션에 맞춰 강도를 조절하세요.</span></article>`)
     .join("");
 }
 
-function getLocalWorkoutPlan(condition, goal) {
+function getLocalWorkoutPlanLegacy(condition, goal) {
   const plans = {
     endurance: ["10분 워밍업", "30분 일정 페이스 유지", "마지막 5분 가볍게 정리"],
     fatloss: ["8분 워밍업", "3분 빠르게 + 2분 천천히를 6회", "수분 보충 후 5분 쿨다운"],
@@ -1950,6 +2103,7 @@ function buildCoachContext(condition, goal, weather = null) {
     todayWeather: weather,
     weightHistory: state.weightHistory.slice(0, 10),
     recentRecords,
+    coachStats: getCoachStats(),
     totals: {
       totalDistanceKm: Number(state.records.reduce((sum, record) => sum + record.distanceKm, 0).toFixed(1)),
       totalMinutes: state.records.reduce((sum, record) => sum + record.minutes, 0),
@@ -1968,7 +2122,7 @@ function extractOpenAiText(data) {
   return parts.join("\n").trim();
 }
 
-async function requestAiCoach(condition, goal, weather = null) {
+async function requestAiCoachLegacy(condition, goal, weather = null) {
   const apiKey = getOpenAiKey();
   if (!apiKey) return null;
 
@@ -2038,6 +2192,336 @@ function applyCoachText(text) {
   if (steps.length) renderWorkout(steps.slice(0, 3));
 }
 
+function getCoachStatsLegacy() {
+  const records = state.records;
+  const now = Date.now();
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const twoWeeksAgo = now - 14 * 24 * 60 * 60 * 1000;
+  const recent = records.slice(0, 5);
+  const thisWeek = records.filter((record) => new Date(record.date).getTime() >= weekAgo);
+  const lastWeek = records.filter((record) => {
+    const time = new Date(record.date).getTime();
+    return time >= twoWeeksAgo && time < weekAgo;
+  });
+  const sumDistance = (items) => items.reduce((sum, record) => sum + record.distanceKm, 0);
+
+  return {
+    recent,
+    last: records[0] || null,
+    totalDistance: sumDistance(records),
+    thisWeekDistance: sumDistance(thisWeek),
+    lastWeekDistance: sumDistance(lastWeek),
+    weeklyCount: thisWeek.length,
+    recentAvgSpeed: recent.length ? recent.reduce((sum, record) => sum + record.avgSpeed, 0) / recent.length : 0,
+    bestDistance: Math.max(0, ...records.map((record) => record.distanceKm)),
+  };
+}
+
+function getCoachWeightSentence() {
+  const weightTrend = getWeightTrend();
+  if (!weightTrend) return "";
+  if (weightTrend.label === "down") {
+    return `몸무게는 최근 ${Math.abs(weightTrend.diff).toFixed(1)}kg 내려갔어요. 오늘은 욕심내기보다 리듬을 살리고, 끝나고 단백질과 수분을 챙기는 쪽이 좋겠습니다.`;
+  }
+  if (weightTrend.label === "up") {
+    return `몸무게가 최근 ${weightTrend.diff.toFixed(1)}kg 올라왔어요. 체중 감량이 목표라면 강도를 확 올리기보다 숨이 차지 않는 시간을 조금 길게 가져가 봐요.`;
+  }
+  return "몸무게 흐름은 안정적이에요. 이런 날은 아주 작은 강도 상승을 넣기 좋습니다.";
+}
+
+function getLocalCoachMessageLegacy(condition, goal) {
+  const stats = getCoachStats();
+  const profileName = state.profile.name ? `${state.profile.name}님, ` : "";
+  const goalLabel = getProfileGoalLabel(goal);
+  const weightSentence = getCoachWeightSentence();
+
+  if (!stats.last) {
+    return `${profileName}아직 코치가 읽을 주행 패턴이 거의 없어요. 오늘은 잘 타는 것보다 첫 기준점을 만드는 날로 보면 됩니다. ${goalLabel} 목표는 기록이 2~3개 쌓이면 훨씬 정확하게 맞춰볼게요. ${weightSentence}`.trim();
+  }
+
+  const lastRide = `최근 주행은 ${stats.last.distanceKm.toFixed(1)}km, 평균 ${stats.last.avgSpeed.toFixed(1)}km/h였어요.`;
+  const weeklySignal =
+    stats.weeklyCount >= 3
+      ? `이번 주에 ${stats.weeklyCount}번 탔으니 몸은 이미 자극을 꽤 받은 편입니다.`
+      : stats.thisWeekDistance > stats.lastWeekDistance && stats.lastWeekDistance > 0
+        ? "지난주보다 주간 거리가 늘고 있어서 흐름은 좋아요."
+        : "이번 주는 아직 여유가 있으니 무리하지 않는 선에서 한 번 더 쌓아도 좋겠습니다.";
+
+  if (condition === "tired") {
+    return `${profileName}${lastRide} ${weeklySignal} 다만 오늘 컨디션을 피곤함으로 골랐으니, 훈련을 밀어붙이기보다 회복 주행으로 다리를 풀어주는 쪽이 더 영리합니다. ${weightSentence}`.trim();
+  }
+
+  if (goal === "speed") {
+    return `${profileName}${lastRide} 속도 목표라면 오늘은 길게 고생하기보다 짧은 가속을 깔끔하게 넣는 날로 가죠. ${weeklySignal} 마지막까지 자세가 무너지지 않는지만 체크해 주세요. ${weightSentence}`.trim();
+  }
+
+  if (goal === "fatloss") {
+    return `${profileName}${lastRide} 감량 목표에는 갑자기 빠른 주행보다 꾸준히 오래 버티는 시간이 더 잘 맞습니다. ${weeklySignal} 오늘은 대화가 가능한 강도로 시간을 채우는 쪽이 좋아요. ${weightSentence}`.trim();
+  }
+
+  if (goal === "health") {
+    return `${profileName}${lastRide} 건강 유지 목적이면 오늘의 성공 기준은 기록 갱신이 아니라 끝났을 때 몸이 가벼운지입니다. ${weeklySignal} 호흡을 편하게 두고 리듬만 유지해 봐요. ${weightSentence}`.trim();
+  }
+
+  return `${profileName}${lastRide} 지구력 목표에는 화려한 한 번보다 반복 가능한 페이스가 더 중요합니다. ${weeklySignal} 오늘은 중간에 흔들리지 않는 속도를 찾는 데 집중해 봐요. ${weightSentence}`.trim();
+}
+
+function renderCoach() {
+  const condition = elements.condition?.value || "normal";
+  const goal = elements.goal?.value || state.profile.goal || "endurance";
+  elements.coachMessage.textContent = getLocalCoachMessage(condition, goal);
+  renderWorkout(getLocalWorkoutPlan(condition, goal));
+}
+
+function getWorkoutStepNote(item) {
+  if (/회복|쿨다운|마무리|스트레칭/.test(item)) return "몸을 다시 편하게 만드는 구간입니다.";
+  if (/전력|인터벌|빠르게|가속/.test(item)) return "자세가 흐트러지면 강도를 바로 낮추세요.";
+  if (/워밍업/.test(item)) return "처음부터 밀지 말고 다리 온도를 올리세요.";
+  return "호흡과 다리 느낌을 같이 확인하세요.";
+}
+
+function renderWorkout(items) {
+  elements.workoutPlan.innerHTML = items
+    .map((item, index) => `<article class="workout-item"><strong>${index + 1}. ${item}</strong><span>${getWorkoutStepNote(item)}</span></article>`)
+    .join("");
+}
+
+function getLocalWorkoutPlanLegacy2(condition, goal) {
+  if (condition === "tired") {
+    return ["10분 아주 가볍게 다리 풀기", "15분 대화 가능한 강도로 회복 주행", "5분 천천히 내려오며 하체 스트레칭"];
+  }
+
+  const plans = {
+    endurance: ["10분 워밍업으로 호흡 안정", "25분 같은 페이스 유지", "마지막 5분은 조금 더 가볍게 정리"],
+    fatloss: ["8분 워밍업", "30분 대화 가능한 강도로 꾸준히", "5분 쿨다운 후 수분 보충"],
+    speed: ["12분 워밍업", "40초 빠르게 + 100초 회복을 6회", "10분 편한 페이스로 마무리"],
+    health: ["10분 워밍업", "20분 편안한 강도 유지", "5분 호흡 낮추며 마무리"],
+  };
+  return plans[goal] || plans.endurance;
+}
+
+async function requestAiCoachLegacy2(condition, goal, weather = null) {
+  const apiKey = getOpenAiKey();
+  if (!apiKey) return null;
+
+  const context = buildCoachContext(condition, goal, weather);
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      instructions:
+        "You are a warm but honest Korean cycling coach inside a personal bicycle trainer app. Sound like a real coach who read the rider's recent pattern, not like a generic fitness template. Mention one concrete signal from the data, explain today's best training choice in plain Korean, and keep safety conservative. Do not diagnose medical issues. Avoid stiff phrases like '분석 결과' or '권장합니다'. Respond with one natural paragraph, then exactly three workout steps. Each step must start with '1.', '2.', '3.' and include a clear duration or intensity.",
+      input: `라이더 상태와 최근 주행 데이터: ${JSON.stringify(context)}`,
+      max_output_tokens: 520,
+    }),
+  });
+
+  if (!response.ok) {
+    let message = `OpenAI API 오류 ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      message = errorJson.error?.message || message;
+    } catch {
+      const errorText = await response.text().catch(() => "");
+      message = errorText || message;
+    }
+    throw new Error(message);
+  }
+
+  return extractOpenAiText(await response.json());
+}
+
+function getCoachTarget(goal) {
+  const targets = {
+    endurance: { weeklyRides: 3, weeklyDistanceKm: 35, minAvgSpeed: 14, label: "지구력" },
+    fatloss: { weeklyRides: 4, weeklyDistanceKm: 30, minAvgSpeed: 12, label: "체중 감량" },
+    speed: { weeklyRides: 3, weeklyDistanceKm: 25, minAvgSpeed: 18, label: "속도 향상" },
+    health: { weeklyRides: 3, weeklyDistanceKm: 18, minAvgSpeed: 10, label: "건강 유지" },
+  };
+  return targets[goal] || targets.endurance;
+}
+
+function getCoachStats() {
+  const records = state.records;
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const weekAgo = now - 7 * dayMs;
+  const twoWeeksAgo = now - 14 * dayMs;
+  const fourWeeksAgo = now - 28 * dayMs;
+  const recent = records.slice(0, 6);
+  const thisWeek = records.filter((record) => new Date(record.date).getTime() >= weekAgo);
+  const lastWeek = records.filter((record) => {
+    const time = new Date(record.date).getTime();
+    return time >= twoWeeksAgo && time < weekAgo;
+  });
+  const month = records.filter((record) => new Date(record.date).getTime() >= fourWeeksAgo);
+  const sumDistance = (items) => items.reduce((sum, record) => sum + record.distanceKm, 0);
+  const sumMinutes = (items) => items.reduce((sum, record) => sum + record.minutes, 0);
+  const avgSpeed = (items) => (items.length ? items.reduce((sum, record) => sum + record.avgSpeed, 0) / items.length : 0);
+
+  return {
+    recent,
+    last: records[0] || null,
+    totalDistance: sumDistance(records),
+    totalMinutes: sumMinutes(records),
+    thisWeekDistance: sumDistance(thisWeek),
+    lastWeekDistance: sumDistance(lastWeek),
+    thisWeekMinutes: sumMinutes(thisWeek),
+    lastWeekMinutes: sumMinutes(lastWeek),
+    weeklyCount: thisWeek.length,
+    lastWeekCount: lastWeek.length,
+    recentAvgSpeed: avgSpeed(recent),
+    thisWeekAvgSpeed: avgSpeed(thisWeek),
+    lastWeekAvgSpeed: avgSpeed(lastWeek),
+    bestDistance: Math.max(0, ...records.map((record) => record.distanceKm)),
+    activeDays: new Set(month.map((record) => new Date(record.date).toISOString().slice(0, 10))).size,
+    daysSinceLastRide: records[0] ? Math.floor((now - new Date(records[0].date).getTime()) / dayMs) : null,
+  };
+}
+
+function evaluateCoachPattern(goal) {
+  const stats = getCoachStats();
+  const target = getCoachTarget(goal);
+  const distanceRatio = target.weeklyDistanceKm ? stats.thisWeekDistance / target.weeklyDistanceKm : 0;
+  const frequencyRatio = target.weeklyRides ? stats.weeklyCount / target.weeklyRides : 0;
+  const speedGap = stats.recentAvgSpeed - target.minAvgSpeed;
+  const distanceDelta = stats.thisWeekDistance - stats.lastWeekDistance;
+  const speedDelta = stats.thisWeekAvgSpeed - stats.lastWeekAvgSpeed;
+  const issues = [];
+  const praise = [];
+
+  if (!stats.last) {
+    issues.push("아직 판단할 기록이 부족합니다");
+    return { stats, target, distanceRatio, frequencyRatio, speedGap, distanceDelta, speedDelta, issues, praise, tone: "start" };
+  }
+
+  if (stats.daysSinceLastRide !== null && stats.daysSinceLastRide >= 5) issues.push(`${stats.daysSinceLastRide}일째 주행 공백`);
+  if (frequencyRatio < 0.5) issues.push("운동 주기가 목표보다 많이 부족함");
+  if (distanceRatio < 0.5) issues.push("주간 주행량이 목표의 절반 이하");
+  if (goal === "speed" && speedGap < -2) issues.push("속도 목표에 비해 최근 평균속도가 낮음");
+  if (goal === "fatloss" && stats.thisWeekMinutes < 90) issues.push("감량 목표에 필요한 유산소 시간이 부족함");
+  if (goal === "endurance" && stats.bestDistance < 10 && stats.totalDistance > 0) issues.push("지구력 목표에 비해 긴 주행 경험이 부족함");
+
+  if (frequencyRatio >= 1) praise.push("운동 주기를 잘 지킴");
+  if (distanceRatio >= 1) praise.push("이번 주 주행량 목표 달성");
+  if (distanceDelta > 5) praise.push(`지난주보다 ${distanceDelta.toFixed(1)}km 더 탐`);
+  if (speedDelta > 1) praise.push(`평균속도가 지난주보다 ${speedDelta.toFixed(1)}km/h 상승`);
+
+  const tone = issues.length >= 2 ? "strict" : praise.length >= 2 ? "praise" : issues.length ? "nudge" : "steady";
+  return { stats, target, distanceRatio, frequencyRatio, speedGap, distanceDelta, speedDelta, issues, praise, tone };
+}
+
+function getCoachMismatchComment(goal, evaluation) {
+  const { stats } = evaluation;
+  if (!stats.last) return "아직은 목표와 기록이 맞는지 판단하기보다, 기준 기록을 만드는 단계입니다.";
+  if (goal === "speed" && evaluation.speedGap < -2) {
+    return "지금 기록 패턴은 속도 향상 목표와 조금 안 맞아요. 그냥 오래 타는 기록보다 짧게라도 빠르게 밟는 구간이 필요합니다.";
+  }
+  if (goal === "fatloss" && stats.thisWeekMinutes < 90) {
+    return "감량 목표라면 지금처럼 드문드문 타는 방식은 효과가 약합니다. 강도보다 주당 총 시간이 먼저예요.";
+  }
+  if (goal === "endurance" && stats.thisWeekDistance < evaluation.target.weeklyDistanceKm * 0.7) {
+    return "지구력 목표인데 주간 거리가 아직 얕습니다. 긴 호흡의 꾸준한 주행을 조금 더 쌓아야 해요.";
+  }
+  if (goal === "health" && stats.weeklyCount === 0) {
+    return "건강 유지 목표라도 완전히 쉬는 주가 길어지면 리듬이 끊깁니다. 짧게라도 다시 움직여야 합니다.";
+  }
+  return "목표와 기록의 방향은 크게 어긋나지 않습니다. 이제 핵심은 꾸준함과 아주 작은 상승폭이에요.";
+}
+
+function getCoachAccountabilityComment(evaluation) {
+  if (evaluation.tone === "strict") {
+    return `쓴소리 조금 할게요. ${evaluation.issues.join(", ")} 상태라서, 지금은 '운동하고 있다'고 보기엔 리듬이 약합니다. 오늘은 기분보다 약속을 지키는 쪽으로 가야 해요.`;
+  }
+  if (evaluation.tone === "praise") {
+    return `좋습니다. ${evaluation.praise.join(", ")}이 보입니다. 이 정도면 그냥 한두 번 탄 게 아니라 흐름을 만들고 있는 거예요.`;
+  }
+  if (evaluation.tone === "nudge") {
+    return `아쉬운 점은 ${evaluation.issues.join(", ")}입니다. 다만 지금 바로잡기 쉬운 단계라 오늘 한 번만 제대로 타도 흐름이 살아납니다.`;
+  }
+  if (evaluation.tone === "start") {
+    return "아직 코치가 혼낼 만큼의 기록도, 칭찬할 만큼의 패턴도 부족합니다. 오늘 기록 하나를 먼저 만들죠.";
+  }
+  return "흐름은 무난합니다. 오늘은 무리해서 증명하기보다, 다음 주에도 반복 가능한 강도로 쌓는 게 좋습니다.";
+}
+
+function getLocalCoachMessage(condition, goal) {
+  const evaluation = evaluateCoachPattern(goal);
+  const stats = evaluation.stats;
+  const profileName = state.profile.name ? `${state.profile.name}님, ` : "";
+  const lastRide = stats.last
+    ? `최근 주행은 ${stats.last.distanceKm.toFixed(1)}km, 평균 ${stats.last.avgSpeed.toFixed(1)}km/h였고 이번 주는 ${stats.weeklyCount}회, ${stats.thisWeekDistance.toFixed(1)}km입니다.`
+    : "아직 최근 주행 기록이 없습니다.";
+  const conditionComment =
+    condition === "tired"
+      ? "오늘 컨디션이 피곤함이면 훈련을 접는 게 아니라 강도를 낮춰서 리듬만 지키면 됩니다."
+      : "오늘 컨디션이 괜찮다면 기록을 조금 더 선명하게 만들 수 있습니다.";
+
+  return `${profileName}${lastRide} ${getCoachMismatchComment(goal, evaluation)} ${getCoachAccountabilityComment(evaluation)} ${conditionComment} ${getCoachWeightSentence()}`.trim();
+}
+
+function getLocalWorkoutPlan(condition, goal) {
+  const evaluation = evaluateCoachPattern(goal);
+  if (condition === "tired") {
+    return ["10분 아주 가볍게 다리 풀기", "15~20분 대화 가능한 강도로 회복 주행", "5분 천천히 내려오며 하체 스트레칭"];
+  }
+  if (evaluation.tone === "strict") {
+    return ["오늘 안에 20분이라도 주행 시작", "숨은 차지만 말은 가능한 강도로 유지", "종료 후 기록 저장하고 다음 주행 날짜 정하기"];
+  }
+  if (goal === "speed") {
+    return ["12분 워밍업", "40초 빠르게 + 100초 회복을 6~8회", "10분 편한 페이스로 마무리"];
+  }
+  if (goal === "fatloss") {
+    return ["8분 워밍업", "35~45분 대화 가능한 강도로 꾸준히", "5분 쿨다운 후 수분 보충"];
+  }
+  if (goal === "health") {
+    return ["10분 워밍업", "20~30분 편안한 강도 유지", "5분 호흡 낮추며 마무리"];
+  }
+  return ["10분 워밍업으로 호흡 안정", "30분 같은 페이스 유지", "마지막 5분은 조금 더 가볍게 정리"];
+}
+
+async function requestAiCoach(condition, goal, weather = null) {
+  const apiKey = getOpenAiKey();
+  if (!apiKey) return null;
+
+  const context = {
+    ...buildCoachContext(condition, goal, weather),
+    coachEvaluation: evaluateCoachPattern(goal),
+  };
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      instructions:
+        "You are a warm but accountable Korean cycling coach inside a personal bicycle trainer app. Read exercise frequency, weekly ride volume, speed trend, goal fit, weight trend, condition, and weather. If the rider is under-training, give honest but not insulting tough love. If the rider is consistent or exceeding the plan, praise specifically. If the recent pattern does not match the selected goal, say so clearly and explain the correction. Avoid generic template language. Do not diagnose medical issues. Respond in Korean with one natural paragraph, then exactly three workout steps starting with '1.', '2.', '3.'. Each step needs a duration or intensity.",
+      input: `라이더 최근 패턴과 코칭 평가: ${JSON.stringify(context)}`,
+      max_output_tokens: 650,
+    }),
+  });
+
+  if (!response.ok) {
+    let message = `OpenAI API 오류 ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      message = errorJson.error?.message || message;
+    } catch {
+      const errorText = await response.text().catch(() => "");
+      message = errorText || message;
+    }
+    throw new Error(message);
+  }
+
+  return extractOpenAiText(await response.json());
+}
+
 function renderAll() {
   renderRecords();
   renderAnalysis();
@@ -2090,9 +2574,9 @@ window.addEventListener("appinstalled", () => {
   setGpsStatus("앱 설치됨");
 });
 
-window.addEventListener("focus", handleBatterySettingsReturn);
+window.addEventListener("focus", handleNativeAppReturn);
 
-document.addEventListener("visibilitychange", handleBatterySettingsReturn);
+document.addEventListener("visibilitychange", handleNativeAppReturn);
 
 elements.installApp?.addEventListener("click", async () => {
   if (!state.installPrompt) {
@@ -2111,9 +2595,9 @@ elements.openBatterySettings?.addEventListener("click", openBatteryOptimizationS
 elements.showPermissionGuide?.addEventListener("click", showFirstRunSetup);
 elements.dismissFirstRunSetup?.addEventListener("click", () => hideFirstRunSetup({ remember: true }));
 
-elements.rideToggle.addEventListener("click", () => {
-  if (state.riding) stopRide();
-  else startRide();
+elements.rideToggle.addEventListener("click", async () => {
+  if (state.riding) await stopRide();
+  else await startRide();
 });
 
 elements.gpsCheck?.addEventListener("click", checkGpsOnce);
@@ -2231,6 +2715,7 @@ elements.firebaseLogout?.addEventListener("click", signOutFromCloud);
 elements.cloudBackup?.addEventListener("click", backupToCloud);
 elements.cloudRestore?.addEventListener("click", restoreFromCloud);
 elements.seedSampleRecords?.addEventListener("click", seedSampleRouteRecords);
+elements.showCoachJson?.addEventListener("click", showCoachJson);
 
 elements.routeForm.addEventListener("submit", (event) => {
   event.preventDefault();

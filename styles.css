@@ -797,6 +797,53 @@ select {
   gap: 8px;
 }
 
+.json-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(18, 28, 24, 0.46);
+}
+
+.json-modal {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 520px);
+  max-height: min(86vh, 720px);
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.json-modal h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.json-modal-output {
+  width: 100%;
+  min-height: 360px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: #f7faf8;
+}
+
+.json-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .analysis-grid {
   margin-top: 8px;
 }
