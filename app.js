@@ -4,8 +4,9 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 16;
-const APP_VERSION_NAME = "1.0.15";
+const COACH_INTENSITY_KEY = "bicycle-trainer-coach-intensity";
+const APP_VERSION_CODE = 17;
+const APP_VERSION_NAME = "1.0.16";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -27,6 +28,7 @@ const state = {
   records: loadRecords(),
   profile: loadProfile(),
   weightHistory: loadWeightHistory(),
+  coachIntensity: loadCoachIntensity(),
   riding: false,
   startedAt: 0,
   elapsedTimer: null,
@@ -119,6 +121,7 @@ const elements = {
   weightHistoryList: $("#weightHistoryList"),
   kakaoMapKey: $("#kakaoMapKey"),
   openAiKey: $("#openAiKey"),
+  coachIntensity: $("#coachIntensity"),
   settingsStatus: $("#settingsStatus"),
   firebaseLogin: $("#firebaseLogin"),
   firebaseLogout: $("#firebaseLogout"),
@@ -242,6 +245,11 @@ function loadWeightHistory() {
   } catch {
     return [];
   }
+}
+
+function loadCoachIntensity() {
+  const value = localStorage.getItem(COACH_INTENSITY_KEY);
+  return ["gentle", "balanced", "strict"].includes(value) ? value : "balanced";
 }
 
 function saveRecords() {
@@ -482,6 +490,7 @@ function renderSettings() {
   const openAiKey = getOpenAiKey();
   if (elements.kakaoMapKey) elements.kakaoMapKey.value = key;
   if (elements.openAiKey) elements.openAiKey.value = openAiKey;
+  if (elements.coachIntensity) elements.coachIntensity.value = state.coachIntensity;
   if (elements.showPermissionGuide) elements.showPermissionGuide.hidden = !isNativeApp();
   setSettingsStatus(
     [
@@ -1993,6 +2002,7 @@ function getCloudPayload() {
     versionCode: APP_VERSION_CODE,
     versionName: APP_VERSION_NAME,
     profile: state.profile,
+    coachIntensity: state.coachIntensity,
     records: getCloudRecords(),
     weightHistory: state.weightHistory,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2096,6 +2106,9 @@ async function restoreFromCloud() {
 
     const data = snapshot.data();
     const nextProfile = data.profile || {};
+    const nextCoachIntensity = ["gentle", "balanced", "strict"].includes(data.coachIntensity)
+      ? data.coachIntensity
+      : state.coachIntensity;
     const nextRecords = Array.isArray(data.records) ? data.records.map(normalizeRecord) : [];
     const nextWeightHistory = Array.isArray(data.weightHistory) ? data.weightHistory : [];
     let restoredApiKeys = null;
@@ -2113,8 +2126,10 @@ async function restoreFromCloud() {
     }
 
     state.profile = nextProfile;
+    state.coachIntensity = nextCoachIntensity;
     state.records = nextRecords;
     state.weightHistory = nextWeightHistory;
+    localStorage.setItem(COACH_INTENSITY_KEY, state.coachIntensity);
     if (restoredApiKeys?.openAiKey) localStorage.setItem(OPENAI_API_KEY, restoredApiKeys.openAiKey);
     if (restoredApiKeys?.kakaoMapKey) {
       localStorage.setItem(KAKAO_MAP_KEY, restoredApiKeys.kakaoMapKey);
@@ -2141,6 +2156,7 @@ function buildCoachContext(condition, goal, weather = null) {
     condition,
     selectedGoal: goal,
     profile: state.profile,
+    coachIntensity: state.coachIntensity,
     currentLocation: state.lastPosition
       ? {
           latitude: Number(state.lastPosition.latitude.toFixed(5)),
@@ -2226,15 +2242,15 @@ function getAiCoachErrorMessage(error) {
 
 function applyCoachText(text) {
   const normalizedText = String(text || "")
-    .replace(/\s+(?=\d+\.\s)/g, "\n")
+    .replace(/\s+(?=[1-3]\.\s)/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   const lines = normalizedText
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const steps = lines.filter((line) => /^\d+\./.test(line)).map((line) => line.replace(/^\d+\.\s*/, ""));
-  const message = lines.filter((line) => !/^\d+\./.test(line)).join(" ");
+  const steps = lines.filter((line) => /^[1-3]\./.test(line)).map((line) => line.replace(/^[1-3]\.\s*/, ""));
+  const message = lines.filter((line) => !/^[1-3]\./.test(line)).join(" ");
 
   if (message) renderCoachMessage(message);
   if (steps.length) renderWorkout(steps.slice(0, 3));
@@ -2652,7 +2668,7 @@ async function requestAiCoach(condition, goal, weather = null) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       instructions:
-        "You are a warm but accountable Korean cycling coach inside a personal bicycle trainer app. The provided summary and recentRecords contain only valid cycling records for coaching, and route path coordinates are intentionally excluded. Do not infer missing ride data or invent records. Prioritize the 7-day, 14-day, and 30-day ride volume, ride frequency, average speed, rest gap, goal fit, weight trend, current condition, and today's weather when available. Interpret what the numbers mean instead of merely listing them. Use weather only to adjust today's ride intensity or safety advice. Use weight trend only for training guidance, never for shame or medical diagnosis. If the rider is under-training, give honest but not insulting tough love. If the rider is consistent or exceeding the plan, praise specifically with evidence from the data. If the recent pattern does not match the selected goal, say so clearly and explain the correction. Avoid generic template language and do not over-explain data quality. Respond in Korean with one natural paragraph, then exactly three workout steps starting with '1.', '2.', '3.'. Each step needs a duration or intensity.",
+        "You are a warm but accountable Korean cycling coach inside a personal bicycle trainer app. The provided summary and recentRecords contain only valid cycling records for coaching, and route path coordinates are intentionally excluded. Do not infer missing ride data or invent records. Prioritize the 7-day, 14-day, and 30-day ride volume, ride frequency, average speed, rest gap, goal fit, weight trend, current condition, and today's weather when available. If weather data is missing, do not mention, apologize for, or explain that weather is unavailable. The rider selected coachIntensity: gentle means encouragement-first with little tough love, balanced means honest but supportive, and strict means more direct accountability for missed training while still never insulting, shaming, or demeaning the rider. Interpret what the numbers mean instead of merely listing them. Use weather only to adjust today's ride intensity or safety advice. Use weight trend only for training guidance, never for shame or medical diagnosis. If the rider is under-training, give honest but not insulting tough love according to coachIntensity. If the rider is consistent or exceeding the plan, praise specifically with evidence from the data. If the recent pattern does not match the selected goal, say so clearly and explain the correction. Avoid generic template language and do not over-explain data quality. Respond in Korean with one natural paragraph, then exactly three workout steps starting with '1.', '2.', '3.'. Each step needs a duration or intensity.",
       input: `라이더 최근 패턴과 코칭 평가: ${JSON.stringify(context)}`,
       max_output_tokens: 650,
     }),
@@ -2826,6 +2842,8 @@ elements.settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const openAiKey = elements.openAiKey.value.trim();
   const key = elements.kakaoMapKey.value.trim();
+  state.coachIntensity = elements.coachIntensity?.value || "balanced";
+  localStorage.setItem(COACH_INTENSITY_KEY, state.coachIntensity);
   if (openAiKey) {
     localStorage.setItem(OPENAI_API_KEY, openAiKey);
   }
@@ -2841,6 +2859,14 @@ elements.settingsForm?.addEventListener("submit", (event) => {
     setSettingsStatus("카카오맵 키를 비웠습니다. OpenStreetMap을 사용합니다.");
   }
   renderSettings();
+  renderCoach();
+});
+
+elements.coachIntensity?.addEventListener("change", () => {
+  state.coachIntensity = elements.coachIntensity.value;
+  localStorage.setItem(COACH_INTENSITY_KEY, state.coachIntensity);
+  renderSettings();
+  renderCoach();
 });
 
 elements.openAiKey?.addEventListener("change", saveOpenAiKeyFromInput);
