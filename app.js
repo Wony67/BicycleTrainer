@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 14;
-const APP_VERSION_NAME = "1.0.13";
+const APP_VERSION_CODE = 15;
+const APP_VERSION_NAME = "1.0.14";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -174,6 +174,20 @@ function compressRecordPath(path) {
   if (normalized.length <= 800) return normalized;
   const step = Math.ceil(normalized.length / 800);
   return normalized.filter((_, index) => index % step === 0 || index === normalized.length - 1);
+}
+
+function summarizeRecordForCoach(record) {
+  const path = normalizeRecordPath(record?.path || []);
+  return {
+    id: record?.id || "",
+    date: record?.date || "",
+    distanceKm: Number(record?.distanceKm) || 0,
+    minutes: Number(record?.minutes) || 0,
+    avgSpeed: Number(record?.avgSpeed) || 0,
+    note: record?.note || "",
+    hasPath: path.length > 1,
+    pathPointCount: path.length,
+  };
 }
 
 function loadProfile() {
@@ -1610,7 +1624,7 @@ function getCoachDebugPayload() {
     },
     condition,
     goal,
-    recentRecords: state.records.slice(0, 10),
+    recentRecords: state.records.slice(0, 10).map(summarizeRecordForCoach),
     coachContext: buildCoachContext(condition, goal, null),
     coachEvaluation,
   };
@@ -2082,13 +2096,7 @@ async function restoreFromCloud() {
 }
 
 function buildCoachContext(condition, goal, weather = null) {
-  const recentRecords = state.records.slice(0, 8).map((record) => ({
-    date: record.date,
-    distanceKm: record.distanceKm,
-    minutes: record.minutes,
-    avgSpeed: record.avgSpeed,
-    note: record.note,
-  }));
+  const recentRecords = state.records.slice(0, 8).map(summarizeRecordForCoach);
 
   return {
     condition,
@@ -2352,7 +2360,8 @@ function getCoachStats() {
   const weekAgo = now - 7 * dayMs;
   const twoWeeksAgo = now - 14 * dayMs;
   const fourWeeksAgo = now - 28 * dayMs;
-  const recent = records.slice(0, 6);
+  const recentSource = records.slice(0, 6);
+  const recent = recentSource.map(summarizeRecordForCoach);
   const thisWeek = records.filter((record) => new Date(record.date).getTime() >= weekAgo);
   const lastWeek = records.filter((record) => {
     const time = new Date(record.date).getTime();
@@ -2365,7 +2374,7 @@ function getCoachStats() {
 
   return {
     recent,
-    last: records[0] || null,
+    last: records[0] ? summarizeRecordForCoach(records[0]) : null,
     totalDistance: sumDistance(records),
     totalMinutes: sumMinutes(records),
     thisWeekDistance: sumDistance(thisWeek),
