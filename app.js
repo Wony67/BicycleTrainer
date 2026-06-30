@@ -4,8 +4,8 @@ const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
 const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
-const APP_VERSION_CODE = 15;
-const APP_VERSION_NAME = "1.0.14";
+const APP_VERSION_CODE = 16;
+const APP_VERSION_NAME = "1.0.15";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -176,17 +176,55 @@ function compressRecordPath(path) {
   return normalized.filter((_, index) => index % step === 0 || index === normalized.length - 1);
 }
 
+function getRecordCoachingQuality(record) {
+  const distanceKm = Number(record?.distanceKm) || 0;
+  const minutes = Number(record?.minutes) || 0;
+  const avgSpeed = Number(record?.avgSpeed) || 0;
+  const excludedReasons = [];
+  let dataQuality = "good";
+
+  if (distanceKm < 0.5) excludedReasons.push("distance_under_0_5km");
+  if (minutes < 5) excludedReasons.push("duration_under_5_minutes");
+  if (avgSpeed > 60) excludedReasons.push("speed_over_60kmh");
+
+  if (excludedReasons.length) {
+    dataQuality = "poor";
+  } else if (avgSpeed < 3) {
+    dataQuality = "suspicious";
+    excludedReasons.push("speed_under_3kmh");
+  } else if (avgSpeed > 45) {
+    dataQuality = "suspicious";
+    excludedReasons.push("speed_over_45kmh");
+  }
+
+  return {
+    dataQuality,
+    isValidForCoaching: dataQuality === "good",
+    excludedReason: excludedReasons.length ? excludedReasons.join(",") : null,
+  };
+}
+
+function getValidCoachRecords() {
+  return state.records
+    .map(normalizeRecord)
+    .filter((record) => getRecordCoachingQuality(record).isValidForCoaching);
+}
+
 function summarizeRecordForCoach(record) {
   const path = normalizeRecordPath(record?.path || []);
+  const quality = getRecordCoachingQuality(record);
   return {
-    id: record?.id || "",
-    date: record?.date || "",
-    distanceKm: Number(record?.distanceKm) || 0,
-    minutes: Number(record?.minutes) || 0,
-    avgSpeed: Number(record?.avgSpeed) || 0,
-    note: record?.note || "",
-    hasPath: path.length > 1,
-    pathPointCount: path.length,
+    rideId: record?.id || "",
+    rideStartedAt: record?.date || "",
+    distanceKilometers: Number(record?.distanceKm) || 0,
+    durationMinutes: Number(record?.minutes) || 0,
+    averageSpeedKmh: Number(record?.avgSpeed) || 0,
+    riderNote: record?.note || "",
+    hasRoutePath: path.length > 1,
+    routePathPointCount: path.length,
+    isValidForCoaching: quality.isValidForCoaching,
+    dataQuality: quality.dataQuality,
+    excludedReason: quality.excludedReason,
   };
 }
 
@@ -1614,6 +1652,7 @@ async function seedSampleRouteRecords() {
 function getCoachDebugPayload() {
   const condition = elements.condition?.value || "normal";
   const goal = elements.goal?.value || state.profile.goal || "endurance";
+  const coachContext = buildCoachContext(condition, goal, null);
   const coachEvaluation = evaluateCoachPattern(goal);
   return {
     generatedAt: new Date().toISOString(),
@@ -1624,8 +1663,8 @@ function getCoachDebugPayload() {
     },
     condition,
     goal,
-    recentRecords: state.records.slice(0, 10).map(summarizeRecordForCoach),
-    coachContext: buildCoachContext(condition, goal, null),
+    recentRecords: coachContext.recentRecords,
+    coachContext,
     coachEvaluation,
   };
 }
@@ -2096,7 +2135,7 @@ async function restoreFromCloud() {
 }
 
 function buildCoachContext(condition, goal, weather = null) {
-  const recentRecords = state.records.slice(0, 8).map(summarizeRecordForCoach);
+  const recentRecords = getValidCoachRecords().slice(0, 8).map(summarizeRecordForCoach);
 
   return {
     condition,
@@ -2110,12 +2149,9 @@ function buildCoachContext(condition, goal, weather = null) {
       : null,
     todayWeather: weather,
     weightHistory: state.weightHistory.slice(0, 10),
+    summary: getCoachSummary(),
     recentRecords,
     coachStats: getCoachStats(),
-    totals: {
-      totalDistanceKm: Number(state.records.reduce((sum, record) => sum + record.distanceKm, 0).toFixed(1)),
-      totalMinutes: state.records.reduce((sum, record) => sum + record.minutes, 0),
-    },
   };
 }
 
@@ -2189,15 +2225,44 @@ function getAiCoachErrorMessage(error) {
 }
 
 function applyCoachText(text) {
-  const lines = text
-    .split("\n")
+  const normalizedText = String(text || "")
+    .replace(/\s+(?=\d+\.\s)/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const lines = normalizedText
+    .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
   const steps = lines.filter((line) => /^\d+\./.test(line)).map((line) => line.replace(/^\d+\.\s*/, ""));
   const message = lines.filter((line) => !/^\d+\./.test(line)).join(" ");
 
-  if (message) elements.coachMessage.textContent = message;
+  if (message) renderCoachMessage(message);
   if (steps.length) renderWorkout(steps.slice(0, 3));
+}
+
+function splitCoachMessageParagraphs(message) {
+  const sentences = String(message || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .match(/[^.!?。！？]+[.!?。！？]?/g);
+  if (!sentences) return [];
+
+  const paragraphs = [];
+  for (let index = 0; index < sentences.length; index += 2) {
+    paragraphs.push(sentences.slice(index, index + 2).join(" ").trim());
+  }
+  return paragraphs.filter(Boolean);
+}
+
+function renderCoachMessage(message) {
+  const paragraphs = splitCoachMessageParagraphs(message);
+  if (!paragraphs.length) {
+    elements.coachMessage.textContent = message;
+    return;
+  }
+  elements.coachMessage.innerHTML = paragraphs
+    .map((paragraph) => `<span class="coach-paragraph">${escapeHtml(paragraph)}</span>`)
+    .join("");
 }
 
 function getCoachStatsLegacy() {
@@ -2277,7 +2342,7 @@ function getLocalCoachMessageLegacy(condition, goal) {
 function renderCoach() {
   const condition = elements.condition?.value || "normal";
   const goal = elements.goal?.value || state.profile.goal || "endurance";
-  elements.coachMessage.textContent = getLocalCoachMessage(condition, goal);
+  renderCoachMessage(getLocalCoachMessage(condition, goal));
   renderWorkout(getLocalWorkoutPlan(condition, goal));
 }
 
@@ -2290,7 +2355,7 @@ function getWorkoutStepNote(item) {
 
 function renderWorkout(items) {
   elements.workoutPlan.innerHTML = items
-    .map((item, index) => `<article class="workout-item"><strong>${index + 1}. ${item}</strong><span>${getWorkoutStepNote(item)}</span></article>`)
+    .map((item, index) => `<article class="workout-item"><strong>${index + 1}. ${escapeHtml(item)}</strong><span>${escapeHtml(getWorkoutStepNote(item))}</span></article>`)
     .join("");
 }
 
@@ -2353,8 +2418,85 @@ function getCoachTarget(goal) {
   return targets[goal] || targets.endurance;
 }
 
+function roundCoachNumber(value, digits = 1) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Number(number.toFixed(digits));
+}
+
+function getRideWindowStats(records, startTime, endTime = Date.now()) {
+  const items = records.filter((record) => {
+    const time = new Date(record.date).getTime();
+    return Number.isFinite(time) && time >= startTime && time < endTime;
+  });
+  const distanceKm = items.reduce((sum, record) => sum + (Number(record.distanceKm) || 0), 0);
+  const durationMinutes = items.reduce((sum, record) => sum + (Number(record.minutes) || 0), 0);
+  const weightedSpeedKmh = durationMinutes
+    ? distanceKm / (durationMinutes / 60)
+    : 0;
+
+  return {
+    records: items,
+    rideCount: items.length,
+    distanceKm,
+    durationMinutes,
+    averageSpeedKmh: weightedSpeedKmh,
+  };
+}
+
+function getCoachSummary() {
+  const validRecords = getValidCoachRecords();
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const last7 = getRideWindowStats(validRecords, now - 7 * dayMs, now);
+  const last14 = getRideWindowStats(validRecords, now - 14 * dayMs, now);
+  const last30 = getRideWindowStats(validRecords, now - 30 * dayMs, now);
+  const previous7 = getRideWindowStats(validRecords, now - 14 * dayMs, now - 7 * dayMs);
+  const total = getRideWindowStats(validRecords, 0, now + dayMs);
+  const recent = validRecords.slice(0, 6);
+  const recentDistanceKm = recent.reduce((sum, record) => sum + (Number(record.distanceKm) || 0), 0);
+  const recentDurationMinutes = recent.reduce((sum, record) => sum + (Number(record.minutes) || 0), 0);
+  const recentAverageSpeedKmh = recentDurationMinutes ? recentDistanceKm / (recentDurationMinutes / 60) : 0;
+  const lastRecordTime = validRecords[0] ? new Date(validRecords[0].date).getTime() : NaN;
+
+  return {
+    validRideCountTotal: total.rideCount,
+    validRideDistanceTotalKm: roundCoachNumber(total.distanceKm),
+    validRideDurationTotalMinutes: Math.round(total.durationMinutes),
+
+    validRideCountLast7Days: last7.rideCount,
+    validRideDistanceLast7DaysKm: roundCoachNumber(last7.distanceKm),
+    validRideDurationLast7DaysMinutes: Math.round(last7.durationMinutes),
+    validRideAverageSpeedLast7DaysKmh: roundCoachNumber(last7.averageSpeedKmh),
+
+    validRideCountLast14Days: last14.rideCount,
+    validRideDistanceLast14DaysKm: roundCoachNumber(last14.distanceKm),
+    validRideDurationLast14DaysMinutes: Math.round(last14.durationMinutes),
+    validRideAverageSpeedLast14DaysKmh: roundCoachNumber(last14.averageSpeedKmh),
+
+    validRideCountLast30Days: last30.rideCount,
+    validRideDistanceLast30DaysKm: roundCoachNumber(last30.distanceKm),
+    validRideDurationLast30DaysMinutes: Math.round(last30.durationMinutes),
+    validRideAverageSpeedLast30DaysKmh: roundCoachNumber(last30.averageSpeedKmh),
+
+    validRideCountPrevious7Days: previous7.rideCount,
+    validRideDistancePrevious7DaysKm: roundCoachNumber(previous7.distanceKm),
+    validRideDurationPrevious7DaysMinutes: Math.round(previous7.durationMinutes),
+    validRideAverageSpeedPrevious7DaysKmh: roundCoachNumber(previous7.averageSpeedKmh),
+
+    validRideDistanceChangeVsPrevious7DaysKm: roundCoachNumber(last7.distanceKm - previous7.distanceKm),
+    validRideCountChangeVsPrevious7Days: last7.rideCount - previous7.rideCount,
+    validRideAverageSpeedChangeVsPrevious7DaysKmh: roundCoachNumber(last7.averageSpeedKmh - previous7.averageSpeedKmh),
+
+    validRideActiveDaysLast30Days: new Set(last30.records.map((record) => new Date(record.date).toISOString().slice(0, 10))).size,
+    daysSinceLastValidRide: Number.isFinite(lastRecordTime) ? Math.floor((now - lastRecordTime) / dayMs) : null,
+    recentValidRideAverageSpeedKmh: roundCoachNumber(recentAverageSpeedKmh),
+    bestValidRideDistanceKm: roundCoachNumber(Math.max(0, ...validRecords.map((record) => Number(record.distanceKm) || 0))),
+  };
+}
+
 function getCoachStats() {
-  const records = state.records;
+  const records = getValidCoachRecords();
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
   const weekAgo = now - 7 * dayMs;
@@ -2510,7 +2652,7 @@ async function requestAiCoach(condition, goal, weather = null) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       instructions:
-        "You are a warm but accountable Korean cycling coach inside a personal bicycle trainer app. Read exercise frequency, weekly ride volume, speed trend, goal fit, weight trend, condition, and weather. If the rider is under-training, give honest but not insulting tough love. If the rider is consistent or exceeding the plan, praise specifically. If the recent pattern does not match the selected goal, say so clearly and explain the correction. Avoid generic template language. Do not diagnose medical issues. Respond in Korean with one natural paragraph, then exactly three workout steps starting with '1.', '2.', '3.'. Each step needs a duration or intensity.",
+        "You are a warm but accountable Korean cycling coach inside a personal bicycle trainer app. The provided summary and recentRecords contain only valid cycling records for coaching, and route path coordinates are intentionally excluded. Do not infer missing ride data or invent records. Prioritize the 7-day, 14-day, and 30-day ride volume, ride frequency, average speed, rest gap, goal fit, weight trend, current condition, and today's weather when available. Interpret what the numbers mean instead of merely listing them. Use weather only to adjust today's ride intensity or safety advice. Use weight trend only for training guidance, never for shame or medical diagnosis. If the rider is under-training, give honest but not insulting tough love. If the rider is consistent or exceeding the plan, praise specifically with evidence from the data. If the recent pattern does not match the selected goal, say so clearly and explain the correction. Avoid generic template language and do not over-explain data quality. Respond in Korean with one natural paragraph, then exactly three workout steps starting with '1.', '2.', '3.'. Each step needs a duration or intensity.",
       input: `라이더 최근 패턴과 코칭 평가: ${JSON.stringify(context)}`,
       max_output_tokens: 650,
     }),
