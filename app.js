@@ -5,8 +5,8 @@ const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
 const COACH_INTENSITY_KEY = "bicycle-trainer-coach-intensity";
-const APP_VERSION_CODE = 17;
-const APP_VERSION_NAME = "1.0.16";
+const APP_VERSION_CODE = 18;
+const APP_VERSION_NAME = "1.0.17";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -153,11 +153,33 @@ function hashString(value) {
 }
 
 function normalizeRecord(record) {
+  const distanceKm = Number(record?.distanceKm);
+  const minutes = Number(record?.minutes);
+  const avgSpeed = Number(record?.avgSpeed);
   return {
     ...record,
-    id: record.id || createRecordId(record),
-    path: normalizeRecordPath(record.path || record.routePath || []),
+    id: record?.id || createRecordId(record),
+    date: record?.date || new Date().toISOString(),
+    distanceKm: Number.isFinite(distanceKm) ? distanceKm : 0,
+    minutes: Number.isFinite(minutes) ? minutes : 0,
+    avgSpeed: Number.isFinite(avgSpeed) ? avgSpeed : 0,
+    note: record?.note || "",
+    path: normalizeRecordPath(record?.path || record?.routePath || []),
   };
+}
+
+function normalizeWeightHistoryEntry(entry) {
+  const weightKg = Number(entry?.weightKg);
+  if (!Number.isFinite(weightKg)) return null;
+  return {
+    date: entry?.date || new Date().toISOString(),
+    weightKg: Number(weightKg.toFixed(1)),
+  };
+}
+
+function normalizeWeightHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history.map(normalizeWeightHistoryEntry).filter(Boolean);
 }
 
 function normalizeRecordPath(path) {
@@ -241,7 +263,7 @@ function loadProfile() {
 
 function loadWeightHistory() {
   try {
-    return JSON.parse(localStorage.getItem(WEIGHT_HISTORY_KEY)) || [];
+    return normalizeWeightHistory(JSON.parse(localStorage.getItem(WEIGHT_HISTORY_KEY)) || []);
   } catch {
     return [];
   }
@@ -513,12 +535,15 @@ function renderProfile() {
 function renderWeightHistory() {
   if (!elements.weightHistoryList) return;
 
-  if (!state.weightHistory.length) {
+  const items = normalizeWeightHistory(state.weightHistory);
+  state.weightHistory = items;
+
+  if (!items.length) {
     elements.weightHistoryList.innerHTML = `<div class="record-item"><strong>아직 몸무게 기록이 없습니다</strong><span>프로필 저장 시 몸무게 변화가 기록됩니다.</span></div>`;
     return;
   }
 
-  elements.weightHistoryList.innerHTML = state.weightHistory
+  elements.weightHistoryList.innerHTML = items
     .slice(0, 8)
     .map(
       (entry) => `
@@ -544,6 +569,7 @@ function addWeightHistory(weightKg) {
 }
 
 function getWeightTrend() {
+  state.weightHistory = normalizeWeightHistory(state.weightHistory);
   if (state.weightHistory.length < 2) return null;
   const latest = state.weightHistory[0];
   const previous = state.weightHistory.find((entry) => entry.date !== latest.date) || state.weightHistory[1];
@@ -2110,7 +2136,7 @@ async function restoreFromCloud() {
       ? data.coachIntensity
       : state.coachIntensity;
     const nextRecords = Array.isArray(data.records) ? data.records.map(normalizeRecord) : [];
-    const nextWeightHistory = Array.isArray(data.weightHistory) ? data.weightHistory : [];
+    const nextWeightHistory = normalizeWeightHistory(data.weightHistory);
     let restoredApiKeys = null;
     let apiKeyMessage = "";
 
