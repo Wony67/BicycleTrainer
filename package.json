@@ -1,6 +1,6 @@
 {
   "name": "bicycle-trainer",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "private": true,
   "description": "Bicycle Trainer mobile app",
   "scripts": {
