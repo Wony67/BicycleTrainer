@@ -86,7 +86,6 @@ const elements = {
   openBatterySettings: $("#openBatterySettings"),
   dismissFirstRunSetup: $("#dismissFirstRunSetup"),
   showPermissionGuide: $("#showPermissionGuide"),
-  installApp: $("#installApp"),
   gpsCheck: $("#gpsCheck"),
   gpsStatus: $("#gpsStatus"),
   rideToggle: $("#rideToggle"),
@@ -127,10 +126,9 @@ const elements = {
   profileGoal: $("#profileGoal"),
   weightHistoryList: $("#weightHistoryList"),
   kakaoMapKey: $("#kakaoMapKey"),
-  kakaoMapKeyPresence: $("#kakaoMapKeyPresence"),
   openAiKey: $("#openAiKey"),
-  openAiKeyPresence: $("#openAiKeyPresence"),
   coachIntensity: $("#coachIntensity"),
+  appVersionInfo: $("#appVersionInfo"),
   settingsStatus: $("#settingsStatus"),
   firebaseLogin: $("#firebaseLogin"),
   firebaseLogout: $("#firebaseLogout"),
@@ -551,16 +549,11 @@ function renderCloudControls() {
 function renderSettings() {
   const key = getKakaoMapKey();
   const openAiKey = getOpenAiKey();
+  if (elements.appVersionInfo) {
+    elements.appVersionInfo.textContent = `현재 설치 버전: ${APP_VERSION_NAME} (${APP_VERSION_CODE})`;
+  }
   if (elements.kakaoMapKey) elements.kakaoMapKey.value = key;
   if (elements.openAiKey) elements.openAiKey.value = openAiKey;
-  if (elements.openAiKeyPresence) {
-    elements.openAiKeyPresence.hidden = !(openAiKey || state.cloudApiKeyPresence.openAiKey);
-    elements.openAiKeyPresence.textContent = openAiKey ? "•••• 로컬에 저장됨" : "•••• 클라우드에 암호화 저장됨";
-  }
-  if (elements.kakaoMapKeyPresence) {
-    elements.kakaoMapKeyPresence.hidden = !(key || state.cloudApiKeyPresence.kakaoMapKey);
-    elements.kakaoMapKeyPresence.textContent = key ? "•••• 로컬에 저장됨" : "•••• 클라우드에 암호화 저장됨";
-  }
   if (elements.coachIntensity) elements.coachIntensity.value = state.coachIntensity;
   if (elements.showPermissionGuide) elements.showPermissionGuide.hidden = !isNativeApp();
   setSettingsStatus(
@@ -2906,52 +2899,19 @@ function isStandaloneApp() {
   return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
 }
 
-function updateInstallButton() {
-  if (!elements.installApp) return;
-  elements.installApp.hidden = false;
-  if (isStandaloneApp()) {
-    elements.installApp.textContent = "설치됨";
-    elements.installApp.disabled = true;
-    return;
-  }
-  elements.installApp.disabled = false;
-  elements.installApp.textContent = state.installPrompt ? "설치" : "설치 안내";
-}
-
-function showInstallGuide() {
-  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const guide = isIos
-    ? "iPhone에서는 Safari 하단 공유 버튼을 누른 뒤 '홈 화면에 추가'를 선택하세요."
-    : "Android Chrome에서는 주소창 옆 메뉴를 열고 '앱 설치' 또는 '홈 화면에 추가'를 선택하세요. 설치 버튼은 HTTPS GitHub Pages 주소에서 가장 잘 표시됩니다.";
-  window.alert(guide);
-}
-
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   state.installPrompt = event;
-  updateInstallButton();
 });
 
 window.addEventListener("appinstalled", () => {
   state.installPrompt = null;
-  updateInstallButton();
   setGpsStatus("앱 설치됨");
 });
 
 window.addEventListener("focus", handleNativeAppReturn);
 
 document.addEventListener("visibilitychange", handleNativeAppReturn);
-
-elements.installApp?.addEventListener("click", async () => {
-  if (!state.installPrompt) {
-    showInstallGuide();
-    return;
-  }
-  const promptEvent = state.installPrompt;
-  state.installPrompt = null;
-  updateInstallButton();
-  await promptEvent.prompt();
-});
 
 elements.updateNow?.addEventListener("click", applyAppUpdate);
 elements.closeFirstRunSetup?.addEventListener("click", () => hideFirstRunSetup());
@@ -3152,7 +3112,6 @@ renderSettings();
 renderProfile();
 renderAll();
 updateRideMetrics();
-updateInstallButton();
 checkNativeAppUpdate();
 initializeGpsStatus();
 initializeFirstRunSetup();

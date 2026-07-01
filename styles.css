@@ -362,13 +362,6 @@ select {
   color: #9f3a21;
 }
 
-.key-presence {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .cloud-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

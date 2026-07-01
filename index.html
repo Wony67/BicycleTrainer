@@ -22,7 +22,6 @@
           <h1>Bicycle Trainer</h1>
         </div>
         <div class="top-actions">
-          <button class="install-action" id="installApp" type="button">설치 안내</button>
           <button class="gps-action" id="gpsCheck" type="button">GPS 확인</button>
           <div class="status-pill" id="gpsStatus">GPS 대기</div>
         </div>
@@ -224,6 +223,8 @@
             </div>
           </div>
 
+          <div class="settings-note app-version-note" id="appVersionInfo">현재 설치 버전: -</div>
+
           <form class="ride-form" id="profileForm">
             <label>
               <span>이름</span>
@@ -269,7 +270,6 @@
               <span>OpenAI API Key</span>
               <div class="key-input-row">
                 <input id="openAiKey" autocomplete="off" type="password" placeholder="sk-..." />
-                <span class="key-presence" id="openAiKeyPresence" hidden>•••• 저장됨</span>
                 <button class="key-clear-button" id="clearOpenAiKey" type="button" aria-label="OpenAI 키 삭제">삭제</button>
               </div>
             </label>
@@ -277,7 +277,6 @@
               <span>카카오맵 JavaScript 키</span>
               <div class="key-input-row">
                 <input id="kakaoMapKey" autocomplete="off" type="password" placeholder="Kakao Developers JavaScript 키 입력" />
-                <span class="key-presence" id="kakaoMapKeyPresence" hidden>•••• 저장됨</span>
                 <button class="key-clear-button" id="clearKakaoKey" type="button" aria-label="카카오맵 키 삭제">삭제</button>
               </div>
             </label>
@@ -313,7 +312,6 @@
             ></textarea>
             <div class="settings-note" id="cloudStatus">Firebase 연결 준비 중입니다.</div>
           </section>
-
         </section>
       </main>
 
