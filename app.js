@@ -14,6 +14,7 @@ const STATIONARY_RADIUS_KM = 0.1;
 const STATIONARY_LIMIT_MS = 20 * 60 * 1000;
 const MIN_SAVE_DISTANCE_KM = 0.5;
 const MIN_SAVE_AVG_SPEED_KMH = 3;
+const PROFILE_GOALS = ["endurance", "fatloss", "speed", "health"];
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDH56iQLm6_ItENRTIwI2-GRT8Pp16e7L4",
   authDomain: "bicycle-trainer-c027e.firebaseapp.com",
@@ -182,6 +183,22 @@ function normalizeWeightHistory(history) {
   return history.map(normalizeWeightHistoryEntry).filter(Boolean);
 }
 
+function normalizeProfile(profile = {}) {
+  if (!profile || typeof profile !== "object") return {};
+
+  const heightCm = Number(profile.heightCm ?? profile.height ?? profile.height_cm);
+  const weightKg = Number(profile.weightKg ?? profile.weight ?? profile.weight_kg);
+  const goal = PROFILE_GOALS.includes(profile.goal) ? profile.goal : "endurance";
+
+  return {
+    name: String(profile.name || "").trim(),
+    heightCm: Number.isFinite(heightCm) && heightCm > 0 ? Number(heightCm.toFixed(1)) : "",
+    weightKg: Number.isFinite(weightKg) && weightKg > 0 ? Number(weightKg.toFixed(1)) : "",
+    goal,
+    updatedAt: profile.updatedAt || "",
+  };
+}
+
 function normalizeRecordPath(path) {
   if (!Array.isArray(path)) return [];
   return path
@@ -258,7 +275,7 @@ function summarizeRecordForCoach(record) {
 
 function loadProfile() {
   try {
-    return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {};
+    return normalizeProfile(JSON.parse(localStorage.getItem(PROFILE_KEY)) || {});
   } catch {
     return {};
   }
@@ -282,6 +299,7 @@ function saveRecords() {
 }
 
 function saveProfile() {
+  state.profile = normalizeProfile(state.profile);
   localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
 }
 
@@ -2134,7 +2152,7 @@ async function restoreFromCloud() {
     }
 
     const data = snapshot.data();
-    const nextProfile = data.profile || {};
+    const nextProfile = normalizeProfile(data.profile || {});
     const nextCoachIntensity = ["gentle", "balanced", "strict"].includes(data.coachIntensity)
       ? data.coachIntensity
       : state.coachIntensity;
@@ -2853,13 +2871,13 @@ elements.profileForm?.addEventListener("submit", (event) => {
   const weightKg = Number(elements.profileWeight.value);
   const goal = elements.profileGoal.value;
 
-  state.profile = {
+  state.profile = normalizeProfile({
     name,
     heightCm: heightCm ? Number(heightCm.toFixed(1)) : "",
     weightKg: weightKg ? Number(weightKg.toFixed(1)) : "",
     goal,
     updatedAt: new Date().toISOString(),
-  };
+  });
 
   if (weightKg) addWeightHistory(weightKg);
   saveProfile();
@@ -2979,9 +2997,9 @@ window.addEventListener("resize", refreshRouteMap);
 window.addEventListener("orientationchange", refreshRouteMap);
 
 initFirebase();
-renderAll();
 renderSettings();
 renderProfile();
+renderAll();
 updateRideMetrics();
 updateInstallButton();
 checkNativeAppUpdate();
