@@ -1635,6 +1635,7 @@ function addRecord(record) {
   state.records = [normalizeRecord(record), ...state.records].slice(0, 60);
   saveRecords();
   renderAll();
+  syncRideRecordsToCloud();
 }
 // #endregion
 
@@ -2093,6 +2094,22 @@ function getCloudPayload() {
     weightHistory: state.weightHistory,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
+}
+
+async function syncRideRecordsToCloud() {
+  await syncAppStateToCloud("새 주행기록을 클라우드에 동기화했습니다.");
+}
+
+async function syncAppStateToCloud(successMessage = "클라우드에 동기화했습니다.") {
+  const docRef = getCloudDocRef();
+  if (!docRef) return;
+
+  try {
+    await docRef.set(getCloudPayload(), { merge: true });
+    setCloudStatus(successMessage);
+  } catch (error) {
+    setCloudStatus(`기기에는 저장했지만 클라우드 동기화에 실패했습니다: ${error.message}`);
+  }
 }
 
 function serializeFirestoreDebugValue(value) {
@@ -2993,6 +3010,7 @@ elements.profileForm?.addEventListener("submit", (event) => {
   saveProfile();
   renderProfile();
   renderCoach();
+  syncAppStateToCloud("프로필 정보를 클라우드에 동기화했습니다.");
 });
 
 elements.settingsForm?.addEventListener("submit", (event) => {
