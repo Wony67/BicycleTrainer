@@ -269,6 +269,7 @@
               <span>OpenAI API Key</span>
               <div class="key-input-row">
                 <input id="openAiKey" autocomplete="off" type="password" placeholder="sk-..." />
+                <span class="key-presence" id="openAiKeyPresence" hidden>•••• 저장됨</span>
                 <button class="key-clear-button" id="clearOpenAiKey" type="button" aria-label="OpenAI 키 삭제">삭제</button>
               </div>
             </label>
@@ -276,6 +277,7 @@
               <span>카카오맵 JavaScript 키</span>
               <div class="key-input-row">
                 <input id="kakaoMapKey" autocomplete="off" type="password" placeholder="Kakao Developers JavaScript 키 입력" />
+                <span class="key-presence" id="kakaoMapKeyPresence" hidden>•••• 저장됨</span>
                 <button class="key-clear-button" id="clearKakaoKey" type="button" aria-label="카카오맵 키 삭제">삭제</button>
               </div>
             </label>
@@ -297,9 +299,18 @@
               <button class="ghost" id="firebaseLogout" type="button" hidden>로그아웃</button>
               <button class="ghost" id="cloudBackup" type="button" disabled hidden>클라우드 백업</button>
               <button class="ghost" id="cloudRestore" type="button" disabled hidden>클라우드 복원</button>
+              <button class="ghost" id="showCloudData" type="button" disabled hidden>Firestore 데이터 보기</button>
               <button class="ghost" id="seedSampleRecords" type="button" disabled hidden>테스트 기록 추가</button>
               <button class="ghost" id="showCoachJson" type="button" disabled hidden>코칭 JSON 보기</button>
             </div>
+            <textarea
+              class="cloud-debug-output"
+              id="cloudDataOutput"
+              readonly
+              spellcheck="false"
+              hidden
+              placeholder="Firestore 데이터가 여기에 표시됩니다."
+            ></textarea>
             <div class="settings-note" id="cloudStatus">Firebase 연결 준비 중입니다.</div>
           </section>
 

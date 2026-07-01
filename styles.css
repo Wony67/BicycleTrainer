@@ -351,9 +351,21 @@ select {
   min-height: 46px;
   border-radius: 8px;
   padding: 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.key-clear-button {
+  grid-column: 2;
+  grid-row: 1;
   background: #f1e5e0;
   color: #9f3a21;
-  font-size: 13px;
+}
+
+.key-presence {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -365,6 +377,21 @@ select {
 
 .cloud-actions button {
   width: 100%;
+}
+
+.cloud-debug-output {
+  width: 100%;
+  min-height: 260px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+  color: #183f35;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
 }
 
 .ride-form button,

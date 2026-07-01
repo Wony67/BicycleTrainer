@@ -63,6 +63,11 @@ const state = {
   firebaseAuth: null,
   firebaseDb: null,
   cloudUser: null,
+  lastAutoRestoredUid: null,
+  cloudApiKeyPresence: {
+    openAiKey: false,
+    kakaoMapKey: false,
+  },
   reloadingForUpdate: false,
   recordDeleteMode: false,
   selectedRecordIds: new Set(),
@@ -122,13 +127,17 @@ const elements = {
   profileGoal: $("#profileGoal"),
   weightHistoryList: $("#weightHistoryList"),
   kakaoMapKey: $("#kakaoMapKey"),
+  kakaoMapKeyPresence: $("#kakaoMapKeyPresence"),
   openAiKey: $("#openAiKey"),
+  openAiKeyPresence: $("#openAiKeyPresence"),
   coachIntensity: $("#coachIntensity"),
   settingsStatus: $("#settingsStatus"),
   firebaseLogin: $("#firebaseLogin"),
   firebaseLogout: $("#firebaseLogout"),
   cloudBackup: $("#cloudBackup"),
   cloudRestore: $("#cloudRestore"),
+  showCloudData: $("#showCloudData"),
+  cloudDataOutput: $("#cloudDataOutput"),
   seedSampleRecords: $("#seedSampleRecords"),
   showCoachJson: $("#showCoachJson"),
   cloudStatus: $("#cloudStatus"),
@@ -512,6 +521,10 @@ function renderCloudControls() {
     elements.cloudRestore.hidden = !signedIn;
     elements.cloudRestore.disabled = !signedIn;
   }
+  if (elements.showCloudData) {
+    elements.showCloudData.hidden = !canUseWonyTools;
+    elements.showCloudData.disabled = !canUseWonyTools;
+  }
   if (elements.seedSampleRecords) {
     elements.seedSampleRecords.hidden = !canUseWonyTools;
     elements.seedSampleRecords.disabled = !canUseWonyTools;
@@ -540,6 +553,14 @@ function renderSettings() {
   const openAiKey = getOpenAiKey();
   if (elements.kakaoMapKey) elements.kakaoMapKey.value = key;
   if (elements.openAiKey) elements.openAiKey.value = openAiKey;
+  if (elements.openAiKeyPresence) {
+    elements.openAiKeyPresence.hidden = !(openAiKey || state.cloudApiKeyPresence.openAiKey);
+    elements.openAiKeyPresence.textContent = openAiKey ? "•••• 로컬에 저장됨" : "•••• 클라우드에 암호화 저장됨";
+  }
+  if (elements.kakaoMapKeyPresence) {
+    elements.kakaoMapKeyPresence.hidden = !(key || state.cloudApiKeyPresence.kakaoMapKey);
+    elements.kakaoMapKeyPresence.textContent = key ? "•••• 로컬에 저장됨" : "•••• 클라우드에 암호화 저장됨";
+  }
   if (elements.coachIntensity) elements.coachIntensity.value = state.coachIntensity;
   if (elements.showPermissionGuide) elements.showPermissionGuide.hidden = !isNativeApp();
   setSettingsStatus(
@@ -2011,6 +2032,13 @@ function initFirebase() {
     state.firebaseAuth.onAuthStateChanged((user) => {
       state.cloudUser = user;
       renderCloudControls();
+      if (!user) {
+        state.lastAutoRestoredUid = null;
+        return;
+      }
+      if (state.lastAutoRestoredUid === user.uid) return;
+      state.lastAutoRestoredUid = user.uid;
+      restoreSettingsFromCloud({ restoreApiKeys: false, automatic: true });
     });
   } catch (error) {
     state.firebaseReady = false;
@@ -2072,6 +2100,43 @@ function getCloudPayload() {
     weightHistory: state.weightHistory,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
+}
+
+function serializeFirestoreDebugValue(value) {
+  if (!value || typeof value !== "object") return value;
+  if (typeof value.toDate === "function") return value.toDate().toISOString();
+  if (Array.isArray(value)) return value.map(serializeFirestoreDebugValue);
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, serializeFirestoreDebugValue(item)]),
+  );
+}
+
+async function showCloudData() {
+  const docRef = getCloudDocRef();
+  if (!docRef) {
+    setCloudStatus("Google 로그인 후 Firestore 데이터를 볼 수 있습니다.");
+    return;
+  }
+
+  if (elements.cloudDataOutput) {
+    elements.cloudDataOutput.hidden = false;
+    elements.cloudDataOutput.value = "Firestore 데이터를 불러오는 중입니다...";
+  }
+
+  try {
+    const snapshot = await docRef.get();
+    const payload = {
+      path: `users/${state.cloudUser.uid}/appState/current`,
+      exists: snapshot.exists,
+      data: snapshot.exists ? serializeFirestoreDebugValue(snapshot.data()) : null,
+    };
+    if (elements.cloudDataOutput) elements.cloudDataOutput.value = JSON.stringify(payload, null, 2);
+    setCloudStatus("Firestore 데이터를 불러왔습니다.");
+  } catch (error) {
+    if (elements.cloudDataOutput) elements.cloudDataOutput.value = "";
+    setCloudStatus(`Firestore 데이터 조회 실패: ${error.message}`);
+  }
 }
 
 async function signInToCloud() {
@@ -2209,6 +2274,69 @@ async function restoreFromCloud() {
     renderProfile();
     renderSettings();
     setCloudStatus(`클라우드 백업을 이 기기에 복원했습니다.${apiKeyMessage}`);
+  } catch (error) {
+    setCloudStatus(`클라우드 복원 실패: ${error.message}`);
+  }
+}
+
+async function restoreSettingsFromCloud(options = {}) {
+  const restoreApiKeys = options?.restoreApiKeys === true;
+  const automatic = options?.automatic === true;
+  const docRef = getCloudDocRef();
+  if (!docRef) return;
+
+  try {
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      setCloudStatus("복원할 클라우드 백업이 없습니다.");
+      return;
+    }
+
+    const data = snapshot.data();
+    const nextProfile = normalizeProfile(data.profile || {});
+    const nextCoachIntensity = ["gentle", "balanced", "strict"].includes(data.coachIntensity)
+      ? data.coachIntensity
+      : state.coachIntensity;
+    const nextRecords = Array.isArray(data.records) ? data.records.map(normalizeRecord) : [];
+    const nextWeightHistory = normalizeWeightHistory(data.weightHistory);
+    const cloudApiKeys = Array.isArray(data.encryptedApiKeys?.keys) ? data.encryptedApiKeys.keys : [];
+    let restoredApiKeys = null;
+    let apiKeyMessage = data.encryptedApiKeys && !restoreApiKeys ? " API 키 저장 여부를 표시했습니다." : "";
+
+    state.profile = nextProfile;
+    state.coachIntensity = nextCoachIntensity;
+    state.records = nextRecords;
+    state.weightHistory = nextWeightHistory;
+    state.cloudApiKeyPresence = {
+      openAiKey: cloudApiKeys.includes("openAiKey"),
+      kakaoMapKey: cloudApiKeys.includes("kakaoMapKey"),
+    };
+    localStorage.setItem(COACH_INTENSITY_KEY, state.coachIntensity);
+    saveProfile();
+    saveRecords();
+    saveWeightHistory();
+
+    if (data.encryptedApiKeys && restoreApiKeys) {
+      const pin = await requestCloudApiPin("복원");
+      if (!pin) {
+        apiKeyMessage = " API 키 복원은 PIN 입력이 취소되어 건너뛰었습니다.";
+      } else {
+        restoredApiKeys = await decryptCloudApiKeys(data.encryptedApiKeys, pin);
+        apiKeyMessage = " API 키도 복원했습니다.";
+      }
+    }
+
+    if (restoredApiKeys?.openAiKey) localStorage.setItem(OPENAI_API_KEY, restoredApiKeys.openAiKey);
+    if (restoredApiKeys?.kakaoMapKey) {
+      localStorage.setItem(KAKAO_MAP_KEY, restoredApiKeys.kakaoMapKey);
+      localStorage.removeItem(LEGACY_NAVER_MAP_KEY);
+      resetRouteMap();
+    }
+
+    renderAll();
+    renderProfile();
+    renderSettings();
+    setCloudStatus(`${automatic ? "클라우드 데이터를 자동으로 불러왔습니다." : "클라우드 백업을 이 기기에 복원했습니다."}${apiKeyMessage}`);
   } catch (error) {
     setCloudStatus(`클라우드 복원 실패: ${error.message}`);
   }
@@ -2959,7 +3087,8 @@ elements.clearKakaoKey?.addEventListener("click", () => {
 elements.firebaseLogin?.addEventListener("click", signInToCloud);
 elements.firebaseLogout?.addEventListener("click", signOutFromCloud);
 elements.cloudBackup?.addEventListener("click", backupToCloud);
-elements.cloudRestore?.addEventListener("click", restoreFromCloud);
+elements.cloudRestore?.addEventListener("click", () => restoreSettingsFromCloud());
+elements.showCloudData?.addEventListener("click", showCloudData);
 elements.seedSampleRecords?.addEventListener("click", seedSampleRouteRecords);
 elements.showCoachJson?.addEventListener("click", showCoachJson);
 
