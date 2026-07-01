@@ -6,8 +6,8 @@ const OPENAI_API_KEY = "bicycle-trainer-openai-api-key";
 const PROFILE_KEY = "bicycle-trainer-profile";
 const WEIGHT_HISTORY_KEY = "bicycle-trainer-weight-history";
 const COACH_INTENSITY_KEY = "bicycle-trainer-coach-intensity";
-const APP_VERSION_CODE = 20;
-const APP_VERSION_NAME = "1.0.19";
+const APP_VERSION_CODE = 21;
+const APP_VERSION_NAME = "1.0.20";
 const APP_VERSION_URL = "https://wony67.github.io/BicycleTrainer/version.json";
 const APP_DOWNLOAD_PAGE_URL = "https://wony67.github.io/BicycleTrainer/download/";
 const FIRST_RUN_SETUP_KEY = "bicycle-trainer-first-run-setup-dismissed";
@@ -2905,6 +2905,9 @@ function renderAll() {
 function switchView(viewName) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${viewName}`));
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === viewName));
+  if (viewName === "ride") {
+    checkNativeAppUpdate();
+  }
   if (viewName === "route") {
     requestAnimationFrame(() => {
       requestAnimationFrame(refreshRouteMap);
