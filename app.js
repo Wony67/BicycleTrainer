@@ -1,3 +1,4 @@
+// #region App constants, state, and DOM references
 const STORAGE_KEY = "bicycle-trainer-records";
 const KAKAO_MAP_KEY = "bicycle-trainer-kakao-map-key";
 const LEGACY_NAVER_MAP_KEY = "bicycle-trainer-naver-map-key";
@@ -134,7 +135,9 @@ const elements = {
   clearKakaoKey: $("#clearKakaoKey"),
   clearOpenAiKey: $("#clearOpenAiKey"),
 };
+// #endregion
 
+// #region Data normalization and local storage
 function loadRecords() {
   try {
     return (JSON.parse(localStorage.getItem(STORAGE_KEY)) || []).map(normalizeRecord);
@@ -327,7 +330,9 @@ function getApiKeysForCloudBackup() {
 function hasCloudApiKeys(keys) {
   return Boolean(keys && Object.keys(keys).length);
 }
+// #endregion
 
+// #region API key encryption and modal helpers
 function assertCloudCryptoSupported() {
   if (!window.crypto?.subtle || !window.crypto?.getRandomValues) {
     throw new Error("이 환경에서는 API 키 암호화를 사용할 수 없습니다.");
@@ -479,7 +484,9 @@ function saveOpenAiKeyFromInput() {
   localStorage.setItem(OPENAI_API_KEY, key);
   setSettingsStatus("OpenAI 키를 저장했습니다. 앱을 다시 열어도 이 기기에 유지됩니다.");
 }
+// #endregion
 
+// #region Settings, profile, and shared UI helpers
 function setSettingsStatus(message) {
   if (elements.settingsStatus) elements.settingsStatus.textContent = message;
 }
@@ -661,7 +668,9 @@ function setMapStatus(message, status = "") {
   elements.mapStatus.classList.toggle("ready", status === "ready");
   elements.mapStatus.classList.toggle("error", status === "error");
 }
+// #endregion
 
+// #region Native platform, permissions, and updates
 function isNativeApp() {
   return Boolean(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.() === "android");
 }
@@ -834,7 +843,9 @@ if ("serviceWorker" in navigator && !isNativeApp()) {
     window.location.reload();
   });
 }
+// #endregion
 
+// #region GPS, route map, and destination guidance
 function isSecureGpsContext() {
   return window.isSecureContext || ["localhost", "127.0.0.1"].includes(window.location.hostname);
 }
@@ -1440,6 +1451,9 @@ function initializeGpsStatus() {
     .catch(() => setGpsStatus("GPS 준비"));
 }
 
+// #endregion
+
+// #region Native background ride tracking and ride recording
 function normalizeBackgroundRideSnapshot(snapshot) {
   if (!snapshot) return null;
   const path = normalizeRecordPath(snapshot.points || snapshot.path || []);
@@ -1608,7 +1622,9 @@ function addRecord(record) {
   saveRecords();
   renderAll();
 }
+// #endregion
 
+// #region Sample records, record list, analytics, and weather
 function getSampleRouteRecords() {
   const now = Date.now();
   return [
@@ -1970,7 +1986,9 @@ function applyWeatherCoachNote(weather) {
   if (!note) return;
   elements.coachMessage.textContent = `${elements.coachMessage.textContent} ${note}`;
 }
+// #endregion
 
+// #region Firebase authentication and cloud backup
 function initFirebase() {
   if (!window.firebase?.initializeApp) {
     renderCloudControls();
@@ -2217,7 +2235,9 @@ function buildCoachContext(condition, goal, weather = null) {
     coachStats: getCoachStats(),
   };
 }
+// #endregion
 
+// #region Coach generation and workout planning
 function extractOpenAiText(data) {
   if (data.output_text) return data.output_text.trim();
   const parts = [];
@@ -2735,7 +2755,9 @@ async function requestAiCoach(condition, goal, weather = null) {
 
   return extractOpenAiText(await response.json());
 }
+// #endregion
 
+// #region App rendering, navigation, and event wiring
 function renderAll() {
   renderRecords();
   renderAnalysis();
@@ -3005,3 +3027,4 @@ updateInstallButton();
 checkNativeAppUpdate();
 initializeGpsStatus();
 initializeFirstRunSetup();
+// #endregion

@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Bicycle Trainer server",
+      "type": "shell",
+      "command": "node server.mjs",
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": {
+        "owner": "bicycle-trainer",
+        "pattern": {
+          "regexp": "."
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Bicycle Trainer running",
+          "endsPattern": "Bicycle Trainer running"
+        }
+      }
+    }
+  ]
+}
